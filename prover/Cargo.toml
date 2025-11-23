@@ -1,0 +1,61 @@
+[package]
+name = "depinzcash-prover"
+version = "0.1.0"
+edition = "2021"
+authors = ["DePINZcash Team"]
+description = "Zero-knowledge proof generator for Zcash Zebra nodes"
+license = "MIT"
+repository = "https://github.com/your-org/DePINZcash"
+
+[dependencies]
+# Halo 2 proving system (same as Zcash uses)
+halo2_proofs = "0.3"
+halo2_gadgets = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Time handling
+chrono = "0.4"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# HTTP client (for optional auto-submission)
+reqwest = { version = "0.11", features = ["json"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Command-line argument parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# Cryptography
+sha2 = "0.10"
+ed25519-dalek = "2.0"
+hex = "0.4"
+
+# RocksDB for reading Zebra state
+rocksdb = "0.21"
+
+# Path handling
+dirs = "5.0"
+which = "5.0"
+
+[dev-dependencies]
+tempfile = "3.0"
+
+[[bin]]
+name = "depinzcash-prover"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
