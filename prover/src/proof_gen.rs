@@ -1,0 +1,325 @@
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use tracing::{debug, info};
+
+use crate::config::Config;
+use crate::zebra_reader::NodeMetrics;
+
+/// A generated proof of node operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Proof {
+    /// Proof format version
+    pub version: String,
+
+    /// Timestamp of proof generation
+    pub timestamp: i64,
+
+    /// Node information
+    pub node_info: NodeInfo,
+
+    /// Metrics being proven
+    pub metrics: ProofMetrics,
+
+    /// The actual Halo 2 proof
+    pub halo2_proof: String,
+
+    /// Public inputs (revealed)
+    pub public_inputs: Vec<String>,
+
+    /// User wallet addresses for rewards
+    pub wallets: Wallets,
+
+    /// Signature over the proof (prevents tampering)
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeInfo {
+    pub zebra_version: String,
+    pub zebra_binary_hash: String,
+    pub network: String,
+    pub node_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofMetrics {
+    pub block_height: u64,
+    pub sync_percentage: f64,
+    pub uptime_hours: f64,
+    pub peer_count: u32,
+    pub blocks_served: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wallets {
+    pub solana: String,
+    pub zcash: String,
+}
+
+/// Proof generator using Halo 2
+pub struct ProofGenerator {
+    config: Config,
+}
+
+impl ProofGenerator {
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    /// Generate a zero-knowledge proof of node metrics
+    pub async fn generate_proof(&self, metrics: &NodeMetrics) -> Result<Proof> {
+        info!("Generating Halo 2 proof...");
+
+        // Public inputs (what we reveal)
+        let public_inputs = vec![
+            metrics.block_height.to_string(),
+            metrics.timestamp.to_string(),
+            metrics.network.clone(),
+        ];
+
+        debug!("Public inputs: {:?}", public_inputs);
+
+        // Private inputs (what we keep hidden)
+        // These are used in proof generation but not revealed
+        let _private_inputs = vec![
+            metrics.zebra_binary_hash.clone(),
+            metrics.uptime_hours.to_string(),
+            metrics.peer_count.to_string(),
+            metrics.blocks_served.to_string(),
+        ];
+
+        // Generate the actual Halo 2 proof
+        let halo2_proof = self.generate_halo2_proof(
+            &public_inputs,
+            &_private_inputs,
+        ).await?;
+
+        // Build node info
+        let node_info = NodeInfo {
+            zebra_version: metrics.zebra_version.clone(),
+            zebra_binary_hash: metrics.zebra_binary_hash.clone(),
+            network: metrics.network.clone(),
+            node_id: self.config.node_id.clone(),
+        };
+
+        // Build proof metrics
+        let proof_metrics = ProofMetrics {
+            block_height: metrics.block_height,
+            sync_percentage: metrics.sync_percentage,
+            uptime_hours: metrics.uptime_hours,
+            peer_count: metrics.peer_count,
+            blocks_served: metrics.blocks_served,
+        };
+
+        // Build wallets
+        let wallets = Wallets {
+            solana: self.config.solana_wallet.clone(),
+            zcash: self.config.zcash_address.clone(),
+        };
+
+        // Create proof structure
+        let proof = Proof {
+            version: "1.0".to_string(),
+            timestamp: chrono::Utc::now().timestamp(),
+            node_info,
+            metrics: proof_metrics,
+            halo2_proof: halo2_proof.clone(),
+            public_inputs: public_inputs.clone(),
+            wallets,
+            signature: String::new(), // Will be filled next
+        };
+
+        // Sign the proof
+        let signature = self.sign_proof(&proof)?;
+
+        let proof = Proof {
+            signature,
+            ..proof
+        };
+
+        info!("Proof generation complete");
+
+        Ok(proof)
+    }
+
+    /// Generate the actual Halo 2 proof
+    async fn generate_halo2_proof(
+        &self,
+        public_inputs: &[String],
+        private_inputs: &[String],
+    ) -> Result<String> {
+        info!("Computing Halo 2 proof (this may take 1-2 minutes)...");
+
+        // TODO: Implement actual Halo 2 proof generation
+        // This is a complex process that involves:
+        // 1. Define the circuit
+        // 2. Create the proving key
+        // 3. Generate the proof
+        // 4. Serialize the proof
+
+        // For MVP, we'll create a mock proof that demonstrates the structure
+        // Real implementation will use halo2_proofs crate
+
+        let mock_proof = self.create_mock_proof(public_inputs, private_inputs);
+
+        // In production, this would be:
+        // let proof = halo2_prove_circuit(circuit, public_inputs, private_inputs)?;
+
+        Ok(mock_proof)
+    }
+
+    /// Create a mock proof for testing (will be replaced with real Halo 2)
+    fn create_mock_proof(&self, public_inputs: &[String], _private_inputs: &[String]) -> String {
+        use sha2::{Sha256, Digest};
+
+        // Create a deterministic "proof" based on inputs
+        // This is NOT a real ZK proof, just for MVP demonstration
+        let mut hasher = Sha256::new();
+        for input in public_inputs {
+            hasher.update(input.as_bytes());
+        }
+        let hash = hasher.finalize();
+
+        format!("MOCK_HALO2_PROOF_{}", hex::encode(hash))
+    }
+
+    /// Sign the proof to prevent tampering
+    fn sign_proof(&self, proof: &Proof) -> Result<String> {
+        use ed25519_dalek::{Keypair, Signature, Signer};
+        use sha2::{Sha256, Digest};
+
+        // Generate a deterministic keypair from user's wallet
+        // In production, this should be a persistent key
+        let seed = self.generate_signing_seed();
+        let keypair = Keypair::from_bytes(&seed)
+            .context("Failed to create signing keypair")?;
+
+        // Create message to sign (hash of proof)
+        let proof_json = serde_json::to_string(proof)?;
+        let mut hasher = Sha256::new();
+        hasher.update(proof_json.as_bytes());
+        let message = hasher.finalize();
+
+        // Sign
+        let signature: Signature = keypair.sign(&message);
+
+        Ok(hex::encode(signature.to_bytes()))
+    }
+
+    /// Generate a signing seed from config
+    fn generate_signing_seed(&self) -> [u8; 64] {
+        use sha2::{Sha512, Digest};
+
+        let mut hasher = Sha512::new();
+        hasher.update(self.config.solana_wallet.as_bytes());
+        hasher.update(self.config.zcash_address.as_bytes());
+
+        let hash = hasher.finalize();
+        let mut seed = [0u8; 64];
+        seed.copy_from_slice(&hash);
+        seed
+    }
+}
+
+impl Proof {
+    /// Save proof to a JSON file
+    pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)
+            .context(format!("Failed to write proof to {:?}", path))?;
+        Ok(())
+    }
+
+    /// Load proof from a JSON file
+    pub fn load_from_file(path: &Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .context(format!("Failed to read proof from {:?}", path))?;
+        let proof: Proof = serde_json::from_str(&content)
+            .context("Failed to parse proof JSON")?;
+        Ok(proof)
+    }
+
+    /// Calculate the expected reward for this proof
+    pub fn calculate_reward(&self) -> RewardCalculation {
+        let mut reward = 0.0;
+
+        // Initial sync bonus
+        let sync_bonus = if self.metrics.sync_percentage >= 100.0 {
+            0.5
+        } else if self.metrics.sync_percentage >= 90.0 {
+            0.375
+        } else if self.metrics.sync_percentage >= 75.0 {
+            0.25
+        } else {
+            0.0
+        };
+
+        reward += sync_bonus;
+
+        // Uptime rewards (0.001 ZEC/hour)
+        let uptime_reward = self.metrics.uptime_hours * 0.001;
+
+        // Multiplier if serving peers
+        let multiplier = if self.metrics.peer_count > 0 {
+            1.5
+        } else {
+            1.0
+        };
+
+        reward += uptime_reward * multiplier;
+
+        RewardCalculation {
+            sync_bonus,
+            uptime_reward,
+            multiplier,
+            total_zec: reward,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RewardCalculation {
+    pub sync_bonus: f64,
+    pub uptime_reward: f64,
+    pub multiplier: f64,
+    pub total_zec: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_reward_calculation() {
+        let proof = Proof {
+            version: "1.0".to_string(),
+            timestamp: 0,
+            node_info: NodeInfo {
+                zebra_version: "1.0.0".to_string(),
+                zebra_binary_hash: "abc123".to_string(),
+                network: "mainnet".to_string(),
+                node_id: None,
+            },
+            metrics: ProofMetrics {
+                block_height: 1000000,
+                sync_percentage: 100.0,
+                uptime_hours: 720.0, // 30 days
+                peer_count: 10,
+                blocks_served: 10000,
+            },
+            halo2_proof: "test".to_string(),
+            public_inputs: vec![],
+            wallets: Wallets {
+                solana: "test".to_string(),
+                zcash: "test".to_string(),
+            },
+            signature: "test".to_string(),
+        };
+
+        let reward = proof.calculate_reward();
+
+        // 0.5 (sync) + (720 * 0.001 * 1.5) = 0.5 + 1.08 = 1.58 ZEC
+        assert!((reward.total_zec - 1.58).abs() < 0.01);
+    }
+}
