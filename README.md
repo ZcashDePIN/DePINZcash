@@ -12,7 +12,7 @@ DePINZcash rewards users for running Zcash full nodes by providing cryptographic
 
 1. **Run Zebra**: Download and sync the official Zebra full node client
 2. **Generate Proofs**: Use our proof generator to create ZK proofs of your node operation
-3. **Submit & Earn**: Submit proofs to our platform and receive ZEC/SOL rewards
+3. **Submit & Earn**: Submit proofs to our platform and receive Meteora coin rewards
 
 ## Features
 
@@ -34,21 +34,21 @@ DePINZcash rewards users for running Zcash full nodes by providing cryptographic
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/DePINZcash
+git clone https://github.com/ZcashDePIN/DePINZcash
 cd DePINZcash
 
 # Run setup
-./setup.sh
+./scripts/setup.sh
 
-# Configure your wallets
-# Follow the prompts to enter your Solana and Zcash addresses
+# Configure your wallet
+# Follow the prompts to enter your Solana wallet address
 ```
 
 ### Generate Your First Proof
 
 ```bash
 # Generate a proof (run this after your Zebra node is synced)
-./generate_proof.sh
+./scripts/generate_proof.sh
 
 # The proof will be saved to ./proofs/proof_[timestamp].json
 # Upload this file to https://depinzcash.io/submit
@@ -80,19 +80,18 @@ DePINZcash/
 └── README.md
 ```
 
-## Rewards
+## Rewards System
 
-### Initial Sync Bonus
-- 0.5 ZEC for 100% sync
-- 0.375 ZEC for 90-99% sync
-- 0.25 ZEC for 75-89% sync
+Node operators earn **Meteora coins** for verifiably contributing to the Zcash network infrastructure. The reward pool is funded by protocol fees collected in a secure vault, ensuring sustainable and transparent payouts.
 
-### Uptime Rewards
-- 0.001 ZEC/hour base rate
-- 1.5x multiplier if serving peers
-- 1.0x multiplier if not serving
+### How Rewards Work
 
-See [REWARDS.md](docs/REWARDS.md) for detailed reward calculations.
+- **Initial Sync**: Bonus rewards for completing blockchain synchronization
+- **Uptime**: Continuous rewards for keeping your node online and synced
+- **Network Participation**: Additional rewards for serving peers and strengthening the network
+- **Fee Vault**: All protocol fees are deposited into a vault and distributed to verified node operators
+
+See [REWARDS.md](docs/REWARDS.md) for detailed information about the reward structure.
 
 ## What Gets Proven?
 
@@ -143,7 +142,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 - Twitter: [@DePINZcash](https://twitter.com/DePINZcash)
 - Discord: [Join our server](https://discord.gg/depinzcash)
-- Forum: [discussions](https://github.com/your-org/DePINZcash/discussions)
+- Forum: [discussions](https://github.com/ZcashDePIN/DePINZcash/discussions)
 
 ## License
 

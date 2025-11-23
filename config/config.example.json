@@ -1,6 +1,5 @@
 {
   "solana_wallet": "YOUR_SOLANA_WALLET_ADDRESS_HERE",
-  "zcash_address": "YOUR_ZCASH_ADDRESS_HERE",
   "node_id": "optional-custom-node-name",
   "auto_submit": false,
   "api_endpoint": "https://depinzcash.io/api/submit",
