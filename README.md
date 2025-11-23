@@ -12,7 +12,7 @@ DePINZcash rewards users for running Zcash full nodes by providing cryptographic
 
 1. **Run Zebra**: Download and sync the official Zebra full node client
 2. **Generate Proofs**: Use our proof generator to create ZK proofs of your node operation
-3. **Submit & Earn**: Submit proofs to our platform and receive Meteora coin rewards
+3. **Submit & Earn**: Submit proofs to our platform and receive rewards in SOL or ZEC
 
 ## Features
 
@@ -21,6 +21,7 @@ DePINZcash rewards users for running Zcash full nodes by providing cryptographic
 - ✅ Privacy-preserving node metrics
 - ✅ Automatic checkpoint-based proof generation
 - ✅ Rewards for sync completion and uptime
+- ✅ Flexible payouts in SOL (Solana) or ZEC (Zcash)
 
 ## Quick Start
 
@@ -40,8 +41,8 @@ cd DePINZcash
 # Run setup
 ./scripts/setup.sh
 
-# Configure your wallet
-# Follow the prompts to enter your Solana wallet address
+# Configure your wallet(s)
+# Provide your Solana wallet and/or Zcash address for receiving rewards
 ```
 
 ### Generate Your First Proof
@@ -82,14 +83,20 @@ DePINZcash/
 
 ## Rewards System
 
-Node operators earn **Meteora coins** for verifiably contributing to the Zcash network infrastructure. The reward pool is funded by protocol fees collected in a secure vault, ensuring sustainable and transparent payouts.
+Node operators earn rewards for verifiably contributing to the Zcash network infrastructure. The reward pool is funded by protocol fees collected in a secure vault, ensuring sustainable and transparent payouts.
+
+### Payment Options
+
+Choose your preferred payment method:
+- **SOL (Solana)** - Fast, low-fee transactions (recommended)
+- **ZEC (Zcash)** - Privacy-focused payments
 
 ### How Rewards Work
 
 - **Initial Sync**: Bonus rewards for completing blockchain synchronization
 - **Uptime**: Continuous rewards for keeping your node online and synced
 - **Network Participation**: Additional rewards for serving peers and strengthening the network
-- **Fee Vault**: All protocol fees are deposited into a vault and distributed to verified node operators
+- **Fee Vault**: Protocol fees are collected in a vault and distributed to verified node operators
 
 See [REWARDS.md](docs/REWARDS.md) for detailed information about the reward structure.
 
