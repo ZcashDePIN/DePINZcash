@@ -50,6 +50,11 @@ which = "5.0"
 
 [dev-dependencies]
 tempfile = "3.0"
+tokio-test = "0.4"
+
+[lib]
+name = "depinzcash_prover"
+path = "src/lib.rs"
 
 [[bin]]
 name = "depinzcash-prover"
