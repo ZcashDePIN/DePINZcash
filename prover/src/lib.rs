@@ -6,5 +6,5 @@ pub mod zebra_reader;
 
 // Re-export commonly used types
 pub use config::Config;
-pub use proof_gen::{Proof, ProofGenerator, ProofMetrics, NodeInfo, Wallets, RewardCalculation};
+pub use proof_gen::{Proof, ProofGenerator, ProofMetrics, NodeInfo, RewardCalculation};
 pub use zebra_reader::{NodeMetrics, ZebraReader};

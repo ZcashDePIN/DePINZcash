@@ -27,6 +27,8 @@ pub struct Proof {
     /// Public inputs (revealed)
     pub public_inputs: Vec<String>,
 
+    
+
     /// Signature over the proof (prevents tampering)
     pub signature: String,
 }
@@ -47,6 +49,8 @@ pub struct ProofMetrics {
     pub peer_count: u32,
     pub blocks_served: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 
 /// Proof generator using Halo 2
 pub struct ProofGenerator {
@@ -72,6 +76,7 @@ impl ProofGenerator {
         debug!("Public inputs: {:?}", public_inputs);
 
         // Private inputs (what we keep hidden)
+        // These are used in proof generation but not revealed
         let _private_inputs = vec![
             metrics.zebra_binary_hash.clone(),
             metrics.uptime_hours.to_string(),
@@ -102,6 +107,7 @@ impl ProofGenerator {
             blocks_served: metrics.blocks_served,
         };
 
+
         // Create proof structure
         let proof = Proof {
             version: "1.0".to_string(),
@@ -110,6 +116,7 @@ impl ProofGenerator {
             metrics: proof_metrics,
             halo2_proof: halo2_proof.clone(),
             public_inputs: public_inputs.clone(),
+            
             signature: String::new(), // Will be filled next
         };
 
@@ -134,15 +141,30 @@ impl ProofGenerator {
     ) -> Result<String> {
         info!("Computing Halo 2 proof (this may take 1-2 minutes)...");
 
+        // TODO: Implement actual Halo 2 proof generation
+        // This is a complex process that involves:
+        // 1. Define the circuit
+        // 2. Create the proving key
+        // 3. Generate the proof
+        // 4. Serialize the proof
+
+        // For MVP, we'll create a mock proof that demonstrates the structure
+        // Real implementation will use halo2_proofs crate
+
         let mock_proof = self.create_mock_proof(public_inputs, private_inputs);
+
+        // In production, this would be:
+        // let proof = halo2_prove_circuit(circuit, public_inputs, private_inputs)?;
 
         Ok(mock_proof)
     }
 
-    /// Create a mock proof for testing
+    /// Create a mock proof for testing (will be replaced with real Halo 2)
     fn create_mock_proof(&self, public_inputs: &[String], _private_inputs: &[String]) -> String {
         use sha2::{Sha256, Digest};
 
+        // Create a deterministic "proof" based on inputs
+        // This is NOT a real ZK proof, just for MVP demonstration
         let mut hasher = Sha256::new();
         for input in public_inputs {
             hasher.update(input.as_bytes());
@@ -157,30 +179,31 @@ impl ProofGenerator {
         use ed25519_dalek::{Keypair, Signature, Signer};
         use sha2::{Sha256, Digest};
 
+        // Generate a deterministic keypair from user's wallet
+        // In production, this should be a persistent key
         let seed = self.generate_signing_seed();
         let keypair = Keypair::from_bytes(&seed)
             .context("Failed to create signing keypair")?;
 
+        // Create message to sign (hash of proof)
         let proof_json = serde_json::to_string(proof)?;
         let mut hasher = Sha256::new();
         hasher.update(proof_json.as_bytes());
         let message = hasher.finalize();
 
+        // Sign
         let signature: Signature = keypair.sign(&message);
 
         Ok(hex::encode(signature.to_bytes()))
     }
 
-    /// Generate a signing seed
+    /// Generate a signing seed from config
     fn generate_signing_seed(&self) -> [u8; 64] {
         use sha2::{Sha512, Digest};
 
         let mut hasher = Sha512::new();
-        // Use node_id for signing seed
-        if let Some(node_id) = &self.config.node_id {
-            hasher.update(node_id.as_bytes());
-        }
-        hasher.update(b"depinzcash_proof");
+        hasher.update(self.config.solana_wallet.as_bytes());
+        hasher.update(self.config.zcash_address.as_bytes());
 
         let hash = hasher.finalize();
         let mut seed = [0u8; 64];
@@ -206,6 +229,43 @@ impl Proof {
             .context("Failed to parse proof JSON")?;
         Ok(proof)
     }
+
+    /// Calculate the expected reward for this proof
+    pub fn calculate_reward(&self) -> RewardCalculation {
+        let mut reward = 0.0;
+
+        // Initial sync bonus
+        let sync_bonus = if self.metrics.sync_percentage >= 100.0 {
+            0.5
+        } else if self.metrics.sync_percentage >= 90.0 {
+            0.375
+        } else if self.metrics.sync_percentage >= 75.0 {
+            0.25
+        } else {
+            0.0
+        };
+
+        reward += sync_bonus;
+
+        // Uptime rewards (0.001 ZEC/hour)
+        let uptime_reward = self.metrics.uptime_hours * 0.001;
+
+        // Multiplier if serving peers
+        let multiplier = if self.metrics.peer_count > 0 {
+            1.5
+        } else {
+            1.0
+        };
+
+        reward += uptime_reward * multiplier;
+
+        RewardCalculation {
+            sync_bonus,
+            uptime_reward,
+            multiplier,
+            total_zec: reward,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,7 +281,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_proof_structure() {
+    fn test_reward_calculation() {
         let proof = Proof {
             version: "1.0".to_string(),
             timestamp: 0,
@@ -234,16 +294,22 @@ mod tests {
             metrics: ProofMetrics {
                 block_height: 1000000,
                 sync_percentage: 100.0,
-                uptime_hours: 720.0,
+                uptime_hours: 720.0, // 30 days
                 peer_count: 10,
                 blocks_served: 10000,
             },
             halo2_proof: "test".to_string(),
             public_inputs: vec![],
+            wallets: Wallets {
+                solana: "test".to_string(),
+                zcash: "test".to_string(),
+            },
             signature: "test".to_string(),
         };
 
-        assert_eq!(proof.version, "1.0");
-        assert_eq!(proof.metrics.block_height, 1000000);
+        let reward = proof.calculate_reward();
+
+        // 0.5 (sync) + (720 * 0.001 * 1.5) = 0.5 + 1.08 = 1.58 ZEC
+        assert!((reward.total_zec - 1.58).abs() < 0.01);
     }
 }
