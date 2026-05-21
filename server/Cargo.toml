@@ -59,6 +59,8 @@ tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+proptest = "1"
+ed25519-dalek = { version = "2", features = ["std", "rand_core"] }
 
 [profile.release]
 opt-level = 3
