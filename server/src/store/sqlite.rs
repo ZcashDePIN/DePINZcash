@@ -209,6 +209,35 @@ impl SqliteStore {
         Ok(())
     }
 
+    // Race-safe insert. Returns true if the row was inserted, false if a row
+    // with the same (node_id, claimed_height, claimed_block_hash) already
+    // existed — concurrent preflight + insert no longer can produce a 500.
+    pub async fn try_insert_proof(&self, proof: &Proof) -> anyhow::Result<bool> {
+        let res = sqlx::query(
+            r#"INSERT OR IGNORE INTO proofs (id, node_id, wallet, claimed_height, claimed_block_hash,
+                proof_timestamp, binary_hash, uptime_seconds, peers, verdict, reject_reason,
+                points_awarded, received_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+        )
+        .bind(proof.id.to_string())
+        .bind(proof.node_id.to_string())
+        .bind(&proof.wallet)
+        .bind(proof.claimed_height as i64)
+        .bind(&proof.claimed_block_hash)
+        .bind(proof.proof_timestamp.to_rfc3339())
+        .bind(&proof.binary_hash)
+        .bind(proof.uptime_seconds.map(|u| u as i64))
+        .bind(proof.peers.map(|p| p as i64))
+        .bind(proof.verdict.as_str())
+        .bind(&proof.reject_reason)
+        .bind(proof.points_awarded as i64)
+        .bind(proof.received_at.to_rfc3339())
+        .execute(&self.pool)
+        .await
+        .context("try-inserting proof")?;
+        Ok(res.rows_affected() == 1)
+    }
+
     pub async fn list_proofs_by_wallet(&self, wallet: &str, limit: i64) -> anyhow::Result<Vec<Proof>> {
         let rows = sqlx::query(
             r#"SELECT id, node_id, wallet, claimed_height, claimed_block_hash, proof_timestamp,

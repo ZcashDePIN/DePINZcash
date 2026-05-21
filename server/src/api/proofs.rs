@@ -87,13 +87,6 @@ pub async fn submit(
     if !store.try_use_nonce(&req.nonce, &req.wallet).await? {
         return Err(AppError::conflict("nonce already used"));
     }
-    if store
-        .count_proof(req.node_id, req.claimed_height, &req.claimed_block_hash)
-        .await?
-        > 0
-    {
-        return Err(AppError::conflict("proof for (height, hash) already submitted by this node"));
-    }
 
     // ---- monotonic height check --------------------------------------------
     if let Some(last) = node.last_height {
@@ -192,7 +185,15 @@ pub async fn submit(
         points_awarded,
         received_at: Utc::now(),
     };
-    store.insert_proof(&proof).await?;
+    // Race-safe: rely on the UNIQUE (node_id, height, hash) constraint instead of
+    // a preflight count. If a concurrent submission already wrote the row, we
+    // return 409 cleanly rather than a 500 from a UNIQUE violation.
+    let inserted = store.try_insert_proof(&proof).await?;
+    if !inserted {
+        return Err(AppError::conflict(
+            "proof for (height, hash) already submitted by this node",
+        ));
+    }
 
     if verdict == ProofVerdict::Accepted {
         store
@@ -244,16 +245,26 @@ pub async fn list_for_wallet(
 //   peers_bonus = min(peers / 4, 3)                      (0..=3)
 //   points = base * (1 + freshness) + uptime_bonus + peers_bonus
 fn calculate_points(node: &Node, req: &SubmitProofRequest, trusted_tip: Option<u64>) -> u64 {
-    let base = node.kind.reward_tier() as u64;
     let drift = match trusted_tip {
         Some(tip) if tip >= req.claimed_height => tip - req.claimed_height,
         _ => 0,
     };
+    points_from_parts(
+        node.kind.reward_tier() as u64,
+        drift,
+        req.uptime_seconds.unwrap_or(0),
+        req.peers.unwrap_or(0),
+    )
+}
+
+// Pure inner function — same logic as calculate_points but with primitive
+// inputs so it can be exercised by Kani and proptest cheaply.
+pub(crate) fn points_from_parts(tier: u64, drift: u64, uptime_seconds: u64, peers: u32) -> u64 {
     let freshness = 5u64.saturating_sub(drift);
-    let uptime_hours = req.uptime_seconds.unwrap_or(0) / 3600;
+    let uptime_hours = uptime_seconds / 3600;
     let uptime_bonus = uptime_hours.min(24);
-    let peers_bonus = (req.peers.unwrap_or(0) as u64 / 4).min(3);
-    base.saturating_mul(1 + freshness) + uptime_bonus + peers_bonus
+    let peers_bonus = (peers as u64 / 4).min(3);
+    tier.saturating_mul(1 + freshness) + uptime_bonus + peers_bonus
 }
 
 fn normalize_hash(s: &str) -> String {
@@ -330,5 +341,188 @@ mod tests {
     fn normalize_hash_accepts_0x() {
         assert_eq!(normalize_hash("0xAB"), "ab");
         assert_eq!(normalize_hash("CD"), "cd");
+    }
+
+    // ---- pure points function: matches the wrapper exactly ----
+
+    #[test]
+    fn points_from_parts_matches_wrapper_zebra_full() {
+        let node = dummy_node(NodeKind::ZebraFull);
+        for &(drift, up, peers) in &[
+            (0u64, 3600u64, 8u32),
+            (5, 0, 0),
+            (100, 86400, 32),
+            (2, 7200, 4),
+        ] {
+            let req = dummy_req(100, up, peers);
+            let via_wrapper = calculate_points(&node, &req, Some(100 + drift));
+            let direct = points_from_parts(node.kind.reward_tier() as u64, drift, up, peers);
+            assert_eq!(via_wrapper, direct, "drift={drift} up={up} peers={peers}");
+        }
+    }
+
+    #[test]
+    fn points_from_parts_zebra_full_max() {
+        // freshness=5 (drift=0), uptime saturates at 24h, peers saturate at 3.
+        // tier=10 * (1+5) = 60, + 24 + 3 = 87
+        let pts = points_from_parts(10, 0, 100 * 3600, 999);
+        assert_eq!(pts, 87);
+    }
+
+    #[test]
+    fn points_from_parts_lwd_min() {
+        // drift huge, no uptime, no peers — tier * 1 = tier
+        let pts = points_from_parts(6, 1_000_000, 0, 0);
+        assert_eq!(pts, 6);
+    }
+
+    #[test]
+    fn uptime_bonus_caps_at_24h() {
+        let a = points_from_parts(10, 0, 24 * 3600, 0);
+        let b = points_from_parts(10, 0, 1000 * 3600, 0);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn peers_bonus_caps_at_3() {
+        let a = points_from_parts(10, 0, 0, 12); // 12/4=3
+        let b = points_from_parts(10, 0, 0, u32::MAX);
+        assert_eq!(a, b);
+    }
+}
+
+// ---- proptest properties for the points function ----
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn upper_bound_holds(
+            tier in 1u64..=20,
+            drift in any::<u64>(),
+            uptime in any::<u64>(),
+            peers in any::<u32>(),
+        ) {
+            // tier * 6 + 27 is the analytic upper bound when freshness=5, uptime=24,
+            // peers_bonus=3.
+            let pts = points_from_parts(tier, drift, uptime, peers);
+            prop_assert!(pts <= tier * 6 + 27);
+        }
+
+        #[test]
+        fn lower_bound_holds(
+            tier in 1u64..=20,
+            drift in 1_000_000u64..u64::MAX,
+            // No uptime, no peers — forces bonuses to 0.
+        ) {
+            let pts = points_from_parts(tier, drift, 0, 0);
+            // freshness=0 when drift big, so pts = tier * 1 + 0 + 0 = tier.
+            prop_assert_eq!(pts, tier);
+        }
+
+        #[test]
+        fn monotonic_in_uptime(
+            tier in 1u64..=20,
+            drift in 0u64..=10,
+            uptime_a in 0u64..(100 * 3600),
+            extra in 0u64..(50 * 3600),
+            peers in 0u32..32,
+        ) {
+            let a = points_from_parts(tier, drift, uptime_a, peers);
+            let b = points_from_parts(tier, drift, uptime_a.saturating_add(extra), peers);
+            prop_assert!(b >= a);
+        }
+
+        #[test]
+        fn monotonic_in_peers(
+            tier in 1u64..=20,
+            drift in 0u64..=10,
+            uptime in 0u64..(100 * 3600),
+            peers_a in 0u32..32,
+            extra in 0u32..32,
+        ) {
+            let a = points_from_parts(tier, drift, uptime, peers_a);
+            let b = points_from_parts(tier, drift, uptime, peers_a.saturating_add(extra));
+            prop_assert!(b >= a);
+        }
+
+        #[test]
+        fn higher_tier_pays_more_or_equal(
+            tier_a in 1u64..=10,
+            tier_b in 1u64..=10,
+            drift in 0u64..=10,
+            uptime in 0u64..(100 * 3600),
+            peers in 0u32..32,
+        ) {
+            prop_assume!(tier_a <= tier_b);
+            let pa = points_from_parts(tier_a, drift, uptime, peers);
+            let pb = points_from_parts(tier_b, drift, uptime, peers);
+            prop_assert!(pb >= pa);
+        }
+
+        #[test]
+        fn drift_never_increases_payout(
+            tier in 1u64..=20,
+            drift_a in 0u64..=10,
+            extra in 0u64..=100,
+            uptime in 0u64..(100 * 3600),
+            peers in 0u32..32,
+        ) {
+            let a = points_from_parts(tier, drift_a, uptime, peers);
+            let b = points_from_parts(tier, drift_a.saturating_add(extra), uptime, peers);
+            prop_assert!(b <= a);
+        }
+    }
+}
+
+// ---- Kani formal-verification harnesses for the points function ----
+//
+// Bounded versions of the proptest properties. Run with `cargo kani`.
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn points_upper_bound() {
+        let tier: u64 = kani::any();
+        kani::assume(tier <= 20);
+        let drift: u64 = kani::any();
+        let uptime: u64 = kani::any();
+        kani::assume(uptime <= 1_000_000); // bound to keep solver tractable
+        let peers: u32 = kani::any();
+
+        let pts = points_from_parts(tier, drift, uptime, peers);
+        assert!(pts <= tier * 6 + 27);
+    }
+
+    #[kani::proof]
+    fn uptime_cap_holds() {
+        // Once uptime >= 24h, increasing it never changes the result.
+        let tier: u64 = kani::any();
+        kani::assume(tier <= 20);
+        let drift: u64 = kani::any();
+        let extra: u64 = kani::any();
+        kani::assume(extra <= 1_000_000);
+        let peers: u32 = kani::any();
+
+        let a = points_from_parts(tier, drift, 24 * 3600, peers);
+        let b = points_from_parts(tier, drift, 24u64 * 3600 + extra, peers);
+        assert!(b == a);
+    }
+
+    #[kani::proof]
+    fn peers_cap_holds() {
+        let tier: u64 = kani::any();
+        kani::assume(tier <= 20);
+        let drift: u64 = kani::any();
+        let uptime: u64 = kani::any();
+        kani::assume(uptime <= 100_000);
+        let extra: u32 = kani::any();
+
+        let a = points_from_parts(tier, drift, uptime, 12);
+        let b = points_from_parts(tier, drift, uptime, 12u32.saturating_add(extra));
+        assert!(b == a);
     }
 }
