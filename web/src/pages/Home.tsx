@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 
 import { api, type NetworkStats, type ServerInfo, type WalletStats } from "../lib/api";
 import { ErrorBanner, Loading } from "../components/Loading";
+import { TokenCA } from "../components/TokenCA";
+import { VaultWallet } from "../components/VaultWallet";
 import { formatNumber, shortAddress } from "../lib/format";
 
 export function Home() {
@@ -37,6 +39,8 @@ export function Home() {
 
   return (
     <div className="flex flex-col gap-10">
+      <TokenCA />
+
       <section className="grid gap-6 md:grid-cols-2">
         <div className="flex flex-col justify-center gap-4">
           <span className="pill w-fit">DePIN · Zcash · Solana</span>
@@ -165,6 +169,8 @@ export function Home() {
           <span className="text-sm text-zcash-subtle">Not yet enabled.</span>
         </article>
       </section>
+
+      <VaultWallet />
 
       <section className="flex flex-col gap-4">
         <div className="flex items-baseline justify-between">

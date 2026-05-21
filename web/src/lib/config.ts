@@ -18,8 +18,28 @@ function defaultApi(): string {
 export const config = {
   apiUrl: envStr(import.meta.env.VITE_API_URL, defaultApi()),
   network: envStr(import.meta.env.VITE_ZCASH_NETWORK, "mainnet") as "mainnet" | "testnet",
-  solanaCluster: envStr(import.meta.env.VITE_SOLANA_CLUSTER, "devnet") as
+  solanaCluster: envStr(import.meta.env.VITE_SOLANA_CLUSTER, "mainnet-beta") as
     | "devnet"
     | "testnet"
     | "mainnet-beta",
+  // Public treasury wallet that pays operator rewards in $ZePIN.
+  // Override via VITE_VAULT_WALLET if it needs to move.
+  vaultWallet: envStr(
+    import.meta.env.VITE_VAULT_WALLET,
+    "pG814gCczXTcswtE2UzZp2TJTqVvVVdumZ85UUDEp1n",
+  ),
+  vaultLabel: envStr(import.meta.env.VITE_VAULT_LABEL, "Treasury wallet ($ZePIN payouts)"),
+  // $ZePIN SPL token mint on Solana mainnet. Override via VITE_TOKEN_MINT.
+  tokenMint: envStr(
+    import.meta.env.VITE_TOKEN_MINT,
+    "61uaHBdWUnnYB6aseptCRthwFmeXmTkE3GSZ9smzcash",
+  ),
+  // Browser-friendly Solana mainnet RPC for treasury balance lookups.
+  // The default `api.mainnet-beta.solana.com` blocks browser CORS with 403.
+  // publicnode is free + CORS-allowed; for production traffic switch to a
+  // Helius/QuickNode endpoint via VITE_SOLANA_RPC_URL.
+  solanaRpcUrl: envStr(
+    import.meta.env.VITE_SOLANA_RPC_URL,
+    "https://solana-rpc.publicnode.com",
+  ),
 };
