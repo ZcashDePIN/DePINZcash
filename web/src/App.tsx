@@ -6,6 +6,7 @@ import { Home } from "./pages/Home";
 import { Register } from "./pages/Register";
 import { Dashboard } from "./pages/Dashboard";
 import { Leaderboard } from "./pages/Leaderboard";
+import { RunNode } from "./pages/RunNode";
 import { NotFound } from "./pages/NotFound";
 
 export function App() {
@@ -19,6 +20,7 @@ export function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/dashboard/:wallet" element={<Dashboard />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
+          <Route path="/run-node" element={<RunNode />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

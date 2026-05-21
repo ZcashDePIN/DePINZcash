@@ -3,6 +3,7 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 const links = [
   { to: "/", label: "Home", end: true },
+  { to: "/run-node", label: "Run a node" },
   { to: "/leaderboard", label: "Leaderboard" },
   { to: "/dashboard", label: "Dashboard" },
   { to: "/register", label: "Register node" },
@@ -15,7 +16,7 @@ export function AppHeader() {
         <NavLink to="/" className="flex items-center gap-2">
           <ZebraGlyph />
           <span className="text-lg font-semibold tracking-tight">DePINZcash</span>
-          <span className="hidden text-xs text-zcash-subtle sm:inline">/ SPL on Solana</span>
+          <span className="hidden text-xs text-zcash-subtle sm:inline">/ $ZePIN on Solana</span>
         </NavLink>
         <nav className="hidden gap-1 md:flex">
           {links.map((l) => (
