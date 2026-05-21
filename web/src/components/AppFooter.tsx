@@ -10,6 +10,8 @@ export function AppFooter() {
           MIT ·{" "}
           <a className="hover:text-zcash-text" href="https://github.com/ZcashDePIN/DePINZcash" target="_blank" rel="noreferrer">Source / GitHub ↗</a>
           {" · "}
+          <a className="hover:text-zcash-text" href="https://x.com/DePINZcash" target="_blank" rel="noreferrer">@DePINZcash on X ↗</a>
+          {" · "}
           <a className="hover:text-zcash-text" href="https://zips.z.cash/zip-0227" target="_blank" rel="noreferrer">ZIP-227</a>
           {" · "}
           <a className="hover:text-zcash-text" href="https://github.com/ZcashFoundation/zebra" target="_blank" rel="noreferrer">Zebra</a>
