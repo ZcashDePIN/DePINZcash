@@ -6,20 +6,61 @@ pub mod proofs;
 pub mod rewards;
 pub mod stats;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
-    http::{HeaderName, HeaderValue, Method},
+    extract::ConnectInfo,
+    http::{HeaderName, HeaderValue, Method, Request},
     routing::{get, post},
     Router,
 };
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    errors::GovernorError, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+    GovernorLayer,
+};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
 
 use crate::state::AppState;
+
+// Behind Fly's edge, the TCP peer is always the proxy — so the default
+// PeerIpKeyExtractor collapses every visitor into one global bucket. Fly
+// passes the real client IP in `Fly-Client-IP`. Fall back to the first
+// X-Forwarded-For entry, then the connect-info peer for local dev.
+#[derive(Debug, Clone, Copy)]
+struct FlyClientIpKeyExtractor;
+
+impl KeyExtractor for FlyClientIpKeyExtractor {
+    type Key = String;
+
+    fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
+        if let Some(ip) = req
+            .headers()
+            .get("fly-client-ip")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            return Ok(ip.to_string());
+        }
+        if let Some(xff) = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+        {
+            if let Some(first) = xff.split(',').next().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                return Ok(first.to_string());
+            }
+        }
+        if let Some(ci) = req.extensions().get::<ConnectInfo<SocketAddr>>() {
+            return Ok(ci.0.ip().to_string());
+        }
+        Err(GovernorError::UnableToExtractKey)
+    }
+}
 
 pub fn router(state: AppState) -> Router {
     let cors = build_cors(&state);
@@ -39,6 +80,7 @@ pub fn router(state: AppState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(state.config().rate_limit_per_second)
                 .burst_size(state.config().rate_limit_burst)
+                .key_extractor(FlyClientIpKeyExtractor)
                 .finish()
                 .expect("governor config builds with positive values"),
         );
