@@ -164,22 +164,40 @@ impl SqliteStore {
         rows.into_iter().map(node_from_row).collect()
     }
 
-    // Global recent proofs feed for the explorer page.
-    pub async fn list_recent_proofs(&self, network: &str, limit: i64) -> anyhow::Result<Vec<Proof>> {
-        let rows = sqlx::query(
-            r#"SELECT p.id, p.node_id, p.wallet, p.claimed_height, p.claimed_block_hash,
-                      p.proof_timestamp, p.binary_hash, p.uptime_seconds, p.peers,
-                      p.verdict, p.reject_reason, p.points_awarded, p.received_at
-               FROM proofs p
-               JOIN nodes n ON n.id = p.node_id
-               WHERE n.network = ?1
-               ORDER BY p.received_at DESC
-               LIMIT ?2"#,
-        )
-        .bind(network)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
+    // Global recent proofs feed for the explorer page, with optional verdict
+    // and wallet filters. Filters are AND'd together.
+    pub async fn list_recent_proofs(
+        &self,
+        network: &str,
+        limit: i64,
+        verdict: Option<&str>,
+        wallet: Option<&str>,
+    ) -> anyhow::Result<Vec<Proof>> {
+        let mut sql = String::from(
+            "SELECT p.id, p.node_id, p.wallet, p.claimed_height, p.claimed_block_hash,
+                    p.proof_timestamp, p.binary_hash, p.uptime_seconds, p.peers,
+                    p.verdict, p.reject_reason, p.points_awarded, p.received_at
+             FROM proofs p
+             JOIN nodes n ON n.id = p.node_id
+             WHERE n.network = ?",
+        );
+        if verdict.is_some() {
+            sql.push_str(" AND p.verdict = ?");
+        }
+        if wallet.is_some() {
+            sql.push_str(" AND p.wallet = ?");
+        }
+        sql.push_str(" ORDER BY p.received_at DESC LIMIT ?");
+
+        let mut q = sqlx::query(&sql).bind(network);
+        if let Some(v) = verdict {
+            q = q.bind(v);
+        }
+        if let Some(w) = wallet {
+            q = q.bind(w);
+        }
+        q = q.bind(limit);
+        let rows = q.fetch_all(&self.pool).await?;
         rows.into_iter().map(proof_from_row).collect()
     }
 
@@ -459,9 +477,10 @@ impl SqliteStore {
     // ---- stats --------------------------------------------------------------
 
     pub async fn network_stats(&self, network: &str) -> anyhow::Result<NetworkStats> {
-        // Only count nodes that have produced at least one accepted proof.
-        // Sign-up-only bots never get last_proof_at set, so they don't inflate
-        // the public counter.
+        // Every stat filters on `last_proof_at IS NOT NULL` so:
+        //   - signup-only bots never contribute,
+        //   - admin-purged nodes drop from every counter (CASCADE removes
+        //     their proofs too, so the proof counts adjust automatically).
         let total_nodes: i64 = sqlx::query_scalar(
             "SELECT COUNT(1) FROM nodes WHERE network = ?1 AND last_proof_at IS NOT NULL",
         )
@@ -475,19 +494,24 @@ impl SqliteStore {
         .fetch_one(&self.pool)
         .await?;
         let total_proofs: i64 = sqlx::query_scalar(
-            "SELECT COUNT(1) FROM proofs p JOIN nodes n ON n.id = p.node_id WHERE n.network = ?1",
+            "SELECT COUNT(1) FROM proofs p
+                JOIN nodes n ON n.id = p.node_id
+                WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL",
         )
         .bind(network)
         .fetch_one(&self.pool)
         .await?;
         let accepted_proofs: i64 = sqlx::query_scalar(
-            "SELECT COUNT(1) FROM proofs p JOIN nodes n ON n.id = p.node_id WHERE n.network = ?1 AND p.verdict = 'accepted'",
+            "SELECT COUNT(1) FROM proofs p
+                JOIN nodes n ON n.id = p.node_id
+                WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL AND p.verdict = 'accepted'",
         )
         .bind(network)
         .fetch_one(&self.pool)
         .await?;
         let total_points: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(points), 0) FROM nodes WHERE network = ?1",
+            "SELECT COALESCE(SUM(points), 0) FROM nodes
+                WHERE network = ?1 AND last_proof_at IS NOT NULL",
         )
         .bind(network)
         .fetch_one(&self.pool)
@@ -513,7 +537,8 @@ impl SqliteStore {
                 COALESCE(SUM(points), 0) AS total_points,
                 COALESCE(SUM(uptime_seconds), 0) AS total_uptime,
                 MAX(last_proof_at) AS last_seen
-                FROM nodes WHERE network = ?1
+                FROM nodes
+                WHERE network = ?1 AND last_proof_at IS NOT NULL
                 GROUP BY wallet
                 ORDER BY total_points DESC
                 LIMIT ?2"#,

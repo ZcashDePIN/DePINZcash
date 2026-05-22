@@ -10,19 +10,28 @@ import {
 import { ErrorBanner, Loading } from "../components/Loading";
 import { formatNumber, formatRelative, formatUptime, shortAddress } from "../lib/format";
 
+type VerdictFilter = "all" | "accepted" | "rejected" | "pending";
+
 export function Explorer() {
   const [nodes, setNodes] = useState<PublicNode[] | null>(null);
   const [proofs, setProofs] = useState<ProofRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<VerdictFilter>("all");
+  const [walletInput, setWalletInput] = useState("");
+  const [walletFilter, setWalletFilter] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const [n, p] = await Promise.all([api.activeNodes(200), api.recentProofs(100)]);
+        const [n, p] = await Promise.all([
+          api.activeNodes(200),
+          api.recentProofs({ limit: 100, verdict, wallet: walletFilter || undefined }),
+        ]);
         if (cancelled) return;
         setNodes(n);
         setProofs(p);
+        setError(null);
       } catch (e: unknown) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
@@ -34,7 +43,7 @@ export function Explorer() {
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [verdict, walletFilter]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -126,11 +135,64 @@ export function Explorer() {
       </section>
 
       <section className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold">Recent proofs</h2>
           <span className="text-xs text-zcash-subtle">
             {proofs ? `${formatNumber(proofs.length)} latest` : "…"} · click block hash to verify on-chain
           </span>
+        </div>
+
+        <div className="card flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="stat-label" htmlFor="filter-verdict">Verdict</label>
+            <select
+              id="filter-verdict"
+              className="input"
+              value={verdict}
+              onChange={(e) => setVerdict(e.target.value as VerdictFilter)}
+            >
+              <option value="all">all</option>
+              <option value="accepted">accepted</option>
+              <option value="rejected">rejected</option>
+              <option value="pending">pending</option>
+            </select>
+          </div>
+          <form
+            className="flex flex-1 flex-col gap-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setWalletFilter(walletInput.trim());
+            }}
+          >
+            <label className="stat-label" htmlFor="filter-wallet">Wallet</label>
+            <div className="flex gap-2">
+              <input
+                id="filter-wallet"
+                className="input flex-1"
+                value={walletInput}
+                onChange={(e) => setWalletInput(e.target.value)}
+                placeholder="paste a Solana wallet to filter…"
+              />
+              <button type="submit" className="btn-outline">apply</button>
+              {walletFilter && (
+                <button
+                  type="button"
+                  className="btn-outline"
+                  onClick={() => {
+                    setWalletInput("");
+                    setWalletFilter("");
+                  }}
+                >
+                  clear
+                </button>
+              )}
+            </div>
+            {walletFilter && (
+              <p className="mt-1 text-[10px] text-zcash-subtle">
+                showing proofs for <code className="font-mono">{walletFilter}</code>
+              </p>
+            )}
+          </form>
         </div>
         {!proofs && !error && <Loading />}
         {proofs && proofs.length === 0 && (

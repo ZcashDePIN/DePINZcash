@@ -174,7 +174,13 @@ export const api = {
   nodeSeries: (id: string, days = 14) =>
     request<NodeDailyBucket[]>(`/api/nodes/${encodeURIComponent(id)}/series?days=${days}`),
   activeNodes: (limit = 200) => request<PublicNode[]>(`/api/nodes?limit=${limit}`),
-  recentProofs: (limit = 100) => request<ProofRecord[]>(`/api/proofs/recent?limit=${limit}`),
+  recentProofs: (opts?: { limit?: number; verdict?: string; wallet?: string }) => {
+    const p = new URLSearchParams();
+    p.set("limit", String(opts?.limit ?? 100));
+    if (opts?.verdict && opts.verdict !== "all") p.set("verdict", opts.verdict);
+    if (opts?.wallet) p.set("wallet", opts.wallet);
+    return request<ProofRecord[]>(`/api/proofs/recent?${p.toString()}`);
+  },
 };
 
 // Block explorer link for a Zcash block hash. Blockchair confirmed working

@@ -238,14 +238,35 @@ pub async fn list_for_wallet(
     Ok(Json(proofs))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RecentQuery {
+    #[serde(default = "default_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub verdict: Option<String>,
+    #[serde(default)]
+    pub wallet: Option<String>,
+}
+
 pub async fn list_recent(
     State(state): State<AppState>,
-    Query(q): Query<ListQuery>,
+    Query(q): Query<RecentQuery>,
 ) -> AppResult<Json<Vec<Proof>>> {
     let limit = q.limit.clamp(1, 500);
+    let verdict = match q.verdict.as_deref() {
+        None | Some("") | Some("all") => None,
+        Some("accepted") | Some("rejected") | Some("pending") => q.verdict.as_deref(),
+        Some(other) => return Err(AppError::bad_request(format!("unknown verdict filter: {other}"))),
+    };
+    if let Some(ref w) = q.wallet {
+        if !w.is_empty() {
+            auth::decode_solana_pubkey(w).map_err(AppError::from)?;
+        }
+    }
+    let wallet_filter = q.wallet.as_deref().filter(|s| !s.is_empty());
     let proofs = state
         .store()
-        .list_recent_proofs(state.config().network.as_str(), limit)
+        .list_recent_proofs(state.config().network.as_str(), limit, verdict, wallet_filter)
         .await?;
     Ok(Json(proofs))
 }

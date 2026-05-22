@@ -366,7 +366,10 @@ async fn network_stats_count_correctly() {
 async fn leaderboard_orders_by_total_points_desc() {
     let store = fresh_store().await;
     for (i, (wallet, pts)) in [("low", 5u64), ("mid", 50), ("hi", 500)].iter().enumerate() {
-        let n = sample_node(wallet, None);
+        let mut n = sample_node(wallet, None);
+        // leaderboard now filters to nodes with last_proof_at set, so
+        // simulate an accepted proof here.
+        n.last_proof_at = Some(Utc::now());
         store.insert_node(&n, &format!("t{i}")).await.unwrap();
         store.add_uptime_and_points(n.id, 0, *pts).await.unwrap();
     }
