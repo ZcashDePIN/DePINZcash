@@ -47,6 +47,9 @@ pub async fn submit(
     State(state): State<AppState>,
     Json(req): Json<SubmitProofRequest>,
 ) -> AppResult<Json<SubmitProofResponse>> {
+    if !state.config().proof_submission_enabled {
+        return Err(AppError::Forbidden);
+    }
     // ---- basic shape checks ------------------------------------------------
     if req.claimed_block_hash.is_empty() || req.claimed_block_hash.len() > 128 {
         return Err(AppError::bad_request("claimed_block_hash empty or oversized"));
