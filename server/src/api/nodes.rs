@@ -232,8 +232,43 @@ fn validate_rpc_endpoint(endpoint: &str) -> AppResult<()> {
         "http" | "https" => {}
         other => return Err(AppError::bad_request(format!("rpc_endpoint scheme must be http/https, got {other}"))),
     }
-    if url.host_str().is_none() {
-        return Err(AppError::bad_request("rpc_endpoint missing host"));
+    let host = url
+        .host_str()
+        .ok_or_else(|| AppError::bad_request("rpc_endpoint missing host"))?;
+    // Reject localhost / private / link-local hosts — the server can't reach
+    // those from Fly, so operators who set them are either confused or trying
+    // to bypass the Exposed-RPC verification path.
+    if is_unreachable_host(host) {
+        return Err(AppError::bad_request(format!(
+            "rpc_endpoint host '{host}' is localhost or a private/link-local address — exposed-rpc URLs must be publicly reachable"
+        )));
     }
     Ok(())
+}
+
+fn is_unreachable_host(host: &str) -> bool {
+    let h = host.to_lowercase();
+    if matches!(h.as_str(), "localhost" | "ip6-localhost" | "ip6-loopback") {
+        return true;
+    }
+    // Try to parse as IP literal (strip [..] for IPv6).
+    let parsed = h
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>();
+    if let Ok(ip) = parsed {
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                return v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified()
+                    || v4.is_broadcast();
+            }
+            std::net::IpAddr::V6(v6) => {
+                return v6.is_loopback() || v6.is_unspecified() || v6.segments()[0] & 0xfe00 == 0xfc00;
+            }
+        }
+    }
+    false
 }

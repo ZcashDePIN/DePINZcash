@@ -1,7 +1,13 @@
-use axum::{extract::State, http::HeaderMap, Json};
+use axum::{
+    extract::{Path, State},
+    http::HeaderMap,
+    Json,
+};
 use serde::Serialize;
+use serde_json::{json, Value};
+use uuid::Uuid;
 
-use crate::{error::AppError, merkle, state::AppState};
+use crate::{error::AppError, merkle, state::AppState, types::NodeStatus};
 
 #[derive(Debug, Serialize)]
 pub struct PublishSnapshotResponse {
@@ -24,6 +30,43 @@ pub async fn publish_snapshot(
         leaves: resp.leaves,
         total_points: resp.total_points,
     }))
+}
+
+// DELETE the node, all its proofs (CASCADE), all its challenges (CASCADE),
+// and zero its points contribution. Use this to remove farmers / fake nodes.
+pub async fn purge_node(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    require_admin(&state, &headers)?;
+    let pool = state.store().pool();
+    let res = sqlx::query("DELETE FROM nodes WHERE id = ?1")
+        .bind(id.to_string())
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("purge_node: {e}")))?;
+    if res.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    tracing::warn!(node_id = %id, "node purged by admin");
+    Ok(Json(json!({ "purged": id.to_string(), "ok": true })))
+}
+
+// Suspend (but don't delete) — keeps the row for audit, stops rewards.
+pub async fn suspend_node(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, AppError> {
+    require_admin(&state, &headers)?;
+    state
+        .store()
+        .update_node_status(id, NodeStatus::Suspended)
+        .await
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("suspend_node: {e}")))?;
+    tracing::warn!(node_id = %id, "node suspended by admin");
+    Ok(Json(json!({ "suspended": id.to_string(), "ok": true })))
 }
 
 fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), AppError> {

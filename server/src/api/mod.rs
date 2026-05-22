@@ -30,7 +30,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/proofs/submit", post(proofs::submit))
         .route("/api/challenges/request", post(challenges::request))
         .route("/api/challenges/submit", post(challenges::submit))
-        .route("/api/admin/snapshot/publish", post(admin::publish_snapshot));
+        .route("/api/admin/snapshot/publish", post(admin::publish_snapshot))
+        .route("/api/admin/nodes/:id/purge", post(admin::purge_node))
+        .route("/api/admin/nodes/:id/suspend", post(admin::suspend_node));
 
     if state.config().rate_limit_enabled {
         let gov_conf = Arc::new(
