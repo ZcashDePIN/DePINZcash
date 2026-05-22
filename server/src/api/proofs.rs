@@ -306,8 +306,9 @@ pub(crate) fn points_from_parts(tier: u64, drift: u64, uptime_seconds: u64, peer
 }
 
 fn normalize_hash(s: &str) -> String {
-    let stripped = s.trim().trim_start_matches("0x").to_lowercase();
-    stripped
+    // Lowercase first so both "0x" and "0X" prefixes get caught uniformly.
+    let lower = s.trim().to_lowercase();
+    lower.trim_start_matches("0x").to_string()
 }
 
 #[cfg(test)]
@@ -379,6 +380,35 @@ mod tests {
     fn normalize_hash_accepts_0x() {
         assert_eq!(normalize_hash("0xAB"), "ab");
         assert_eq!(normalize_hash("CD"), "cd");
+    }
+
+    #[test]
+    fn normalize_hash_lowercases_and_trims() {
+        assert_eq!(normalize_hash("  0XdEaDbEeF  "), "deadbeef");
+        assert_eq!(normalize_hash("ABCDEF"), "abcdef");
+        assert_eq!(normalize_hash("0xABCDEF"), "abcdef");
+    }
+
+    #[test]
+    fn normalize_hash_is_idempotent() {
+        for raw in ["0xAaBb", "  Ff ", "0X00FF", "abc", ""] {
+            let once = normalize_hash(raw);
+            let twice = normalize_hash(&once);
+            assert_eq!(once, twice, "f(f(x)) must equal f(x) for {raw:?}");
+        }
+    }
+
+    #[test]
+    fn normalize_hash_only_strips_leading_0x() {
+        // Internal `0x` substrings must survive — only a *leading* prefix is stripped.
+        assert_eq!(normalize_hash("AB0xCD"), "ab0xcd");
+    }
+
+    #[test]
+    fn normalize_hash_handles_empty() {
+        assert_eq!(normalize_hash(""), "");
+        assert_eq!(normalize_hash("0x"), "");
+        assert_eq!(normalize_hash("   "), "");
     }
 
     // ---- pure points function: matches the wrapper exactly ----
@@ -562,5 +592,95 @@ mod kani_proofs {
         let a = points_from_parts(tier, drift, uptime, 12);
         let b = points_from_parts(tier, drift, uptime, 12u32.saturating_add(extra));
         assert!(b == a);
+    }
+
+    // Monotonic: more uptime never decreases the payout.
+    #[kani::proof]
+    fn monotonic_in_uptime() {
+        let tier: u64 = kani::any();
+        kani::assume(tier <= 20);
+        let drift: u64 = kani::any();
+        kani::assume(drift <= 10);
+        let uptime_a: u64 = kani::any();
+        kani::assume(uptime_a <= 100_000);
+        let extra: u64 = kani::any();
+        kani::assume(extra <= 100_000);
+        let peers: u32 = kani::any();
+        kani::assume(peers <= 32);
+
+        let a = points_from_parts(tier, drift, uptime_a, peers);
+        let b = points_from_parts(tier, drift, uptime_a + extra, peers);
+        assert!(b >= a);
+    }
+
+    // Monotonic: more peers never decreases the payout.
+    #[kani::proof]
+    fn monotonic_in_peers() {
+        let tier: u64 = kani::any();
+        kani::assume(tier <= 20);
+        let drift: u64 = kani::any();
+        kani::assume(drift <= 10);
+        let uptime: u64 = kani::any();
+        kani::assume(uptime <= 100_000);
+        let peers_a: u32 = kani::any();
+        kani::assume(peers_a <= 32);
+        let extra: u32 = kani::any();
+        kani::assume(extra <= 32);
+
+        let a = points_from_parts(tier, drift, uptime, peers_a);
+        let b = points_from_parts(tier, drift, uptime, peers_a + extra);
+        assert!(b >= a);
+    }
+
+    // Anti-monotonic: more drift never increases the payout.
+    #[kani::proof]
+    fn drift_never_increases_payout() {
+        let tier: u64 = kani::any();
+        kani::assume(tier <= 20);
+        let drift_a: u64 = kani::any();
+        kani::assume(drift_a <= 10);
+        let extra: u64 = kani::any();
+        kani::assume(extra <= 100);
+        let uptime: u64 = kani::any();
+        kani::assume(uptime <= 100_000);
+        let peers: u32 = kani::any();
+        kani::assume(peers <= 32);
+
+        let a = points_from_parts(tier, drift_a, uptime, peers);
+        let b = points_from_parts(tier, drift_a + extra, uptime, peers);
+        assert!(b <= a);
+    }
+
+    // Higher tier always pays at least as much.
+    #[kani::proof]
+    fn higher_tier_pays_more_or_equal() {
+        let t_a: u64 = kani::any();
+        kani::assume(t_a >= 1 && t_a <= 10);
+        let t_b: u64 = kani::any();
+        kani::assume(t_b >= t_a && t_b <= 10);
+        let drift: u64 = kani::any();
+        kani::assume(drift <= 10);
+        let uptime: u64 = kani::any();
+        kani::assume(uptime <= 100_000);
+        let peers: u32 = kani::any();
+        kani::assume(peers <= 32);
+
+        let pa = points_from_parts(t_a, drift, uptime, peers);
+        let pb = points_from_parts(t_b, drift, uptime, peers);
+        assert!(pb >= pa);
+    }
+
+    // Zero tier always yields zero base, capped by bonuses only.
+    #[kani::proof]
+    fn zero_tier_caps_at_bonuses() {
+        let drift: u64 = kani::any();
+        let uptime: u64 = kani::any();
+        kani::assume(uptime <= 1_000_000);
+        let peers: u32 = kani::any();
+
+        let pts = points_from_parts(0, drift, uptime, peers);
+        // tier=0 → tier * (1 + freshness) = 0. Result is just uptime_bonus + peers_bonus.
+        // uptime_bonus <= 24, peers_bonus <= 3, so total <= 27.
+        assert!(pts <= 27);
     }
 }

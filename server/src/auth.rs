@@ -328,4 +328,136 @@ mod tests {
         let s = "a".repeat(129);
         assert!(check_nonce(&s).is_err());
     }
+
+    #[test]
+    fn nonce_with_tab_or_newline_rejected() {
+        assert!(check_nonce("ok-nonce-\t1234567").is_err());
+        assert!(check_nonce("ok-nonce-\n1234567").is_err());
+        assert!(check_nonce("ok-nonce-\r1234567").is_err());
+    }
+
+    #[test]
+    fn registration_message_is_byte_stable() {
+        // Same inputs must always produce identical bytes — this is the contract
+        // the JS client signs against.
+        let m1 = registration_message("w", "n12345678901234567", "2024-01-01T00:00:00Z", "zebra-full", "mainnet", "lbl");
+        let m2 = registration_message("w", "n12345678901234567", "2024-01-01T00:00:00Z", "zebra-full", "mainnet", "lbl");
+        assert_eq!(m1, m2);
+    }
+
+    #[test]
+    fn registration_message_distinguishes_each_field() {
+        // Flipping any one field must change the signed bytes.
+        let base = registration_message("w", "n12345678901234567", "ts", "zebra-full", "mainnet", "lbl");
+        for variant in [
+            registration_message("X", "n12345678901234567", "ts", "zebra-full", "mainnet", "lbl"),
+            registration_message("w", "Y2345678901234567X", "ts", "zebra-full", "mainnet", "lbl"),
+            registration_message("w", "n12345678901234567", "Zts", "zebra-full", "mainnet", "lbl"),
+            registration_message("w", "n12345678901234567", "ts", "lightwalletd", "mainnet", "lbl"),
+            registration_message("w", "n12345678901234567", "ts", "zebra-full", "testnet", "lbl"),
+            registration_message("w", "n12345678901234567", "ts", "zebra-full", "mainnet", "different"),
+        ] {
+            assert_ne!(base, variant);
+        }
+    }
+
+    #[test]
+    fn proof_message_distinguishes_each_field() {
+        let base = proof_message("w", "node", 100, "h", "ts", "n12345678901234567");
+        for variant in [
+            proof_message("X", "node", 100, "h", "ts", "n12345678901234567"),
+            proof_message("w", "Y",    100, "h", "ts", "n12345678901234567"),
+            proof_message("w", "node", 101, "h", "ts", "n12345678901234567"),
+            proof_message("w", "node", 100, "H", "ts", "n12345678901234567"),
+            proof_message("w", "node", 100, "h", "Zts", "n12345678901234567"),
+            proof_message("w", "node", 100, "h", "ts", "Z2345678901234567X"),
+        ] {
+            assert_ne!(base, variant);
+        }
+    }
+
+    #[test]
+    fn check_timestamp_zero_skew_accepts_now_only() {
+        // With zero skew, only the current instant works — in practice any
+        // call has some elapsed time so this returns err. Just exercise the
+        // boundary.
+        let just_after = Utc::now() + Duration::seconds(1);
+        assert!(check_timestamp(just_after, std::time::Duration::from_secs(0)).is_err());
+    }
+
+    #[test]
+    fn check_timestamp_symmetric_window() {
+        let skew = std::time::Duration::from_secs(60);
+        let before = Utc::now() - Duration::seconds(30);
+        let after = Utc::now() + Duration::seconds(30);
+        assert!(check_timestamp(before, skew).is_ok());
+        assert!(check_timestamp(after, skew).is_ok());
+    }
+
+    #[test]
+    fn round_trip_registration_message_signature() {
+        let signing = fresh_signing_key();
+        let wallet = bs58::encode(signing.verifying_key().to_bytes()).into_string();
+        let msg = registration_message(
+            &wallet,
+            "round-trip-nonce-1234",
+            "2026-05-22T07:30:00Z",
+            "zebra-full",
+            "mainnet",
+            "primary",
+        );
+        let sig = signing.sign(&msg);
+        let sig_b58 = bs58::encode(sig.to_bytes()).into_string();
+        assert!(verify_solana_signature(&wallet, &msg, &sig_b58).is_ok());
+
+        // Tampering any byte breaks verification.
+        let mut tampered = msg.clone();
+        tampered[0] ^= 0x01;
+        assert!(verify_solana_signature(&wallet, &tampered, &sig_b58).is_err());
+    }
+}
+
+// ---- Kani formal-verification harnesses for the auth surface --------------
+//
+// Run with `cargo kani`. Cargo skips this module in normal builds.
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+
+    // Bounded: short nonce strings (<=24 bytes) — Kani enumerates every length
+    // up to that bound and verifies the boundary behavior of check_nonce.
+    #[kani::proof]
+    #[kani::unwind(25)]
+    fn check_nonce_length_invariant() {
+        let len: usize = kani::any();
+        kani::assume(len <= 24);
+        // Build a hex-safe input of exactly `len` 'a' bytes.
+        let s: String = "a".repeat(len);
+        let r = check_nonce(&s);
+        if len >= 16 && len <= 128 {
+            assert!(r.is_ok(), "len {len} should be accepted");
+        } else {
+            assert!(r.is_err(), "len {len} should be rejected");
+        }
+    }
+
+    // hash_leaf-style determinism check for the registration message:
+    // same inputs → identical output bytes.
+    #[kani::proof]
+    fn registration_message_is_deterministic() {
+        // Use static strings to bound the input space — Kani can't enumerate
+        // arbitrary str contents efficiently.
+        let m1 = registration_message("w", "n", "t", "k", "net", "");
+        let m2 = registration_message("w", "n", "t", "k", "net", "");
+        assert!(m1 == m2);
+    }
+
+    // Distinct kinds → distinct bytes. Specifically, "zebra-full" and
+    // "lightwalletd" must produce different signing messages.
+    #[kani::proof]
+    fn registration_message_kind_changes_output() {
+        let zebra = registration_message("w", "n", "t", "zebra-full", "net", "");
+        let lwd = registration_message("w", "n", "t", "lightwalletd", "net", "");
+        assert!(zebra != lwd);
+    }
 }

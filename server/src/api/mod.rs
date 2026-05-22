@@ -129,3 +129,76 @@ fn build_cors(state: &AppState) -> CorsLayer {
         base.allow_origin(AllowOrigin::list(list))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
+
+    fn req() -> Request<()> {
+        Request::builder().uri("/").body(()).unwrap()
+    }
+
+    #[test]
+    fn extractor_prefers_fly_client_ip() {
+        let mut r = req();
+        r.headers_mut()
+            .insert("fly-client-ip", "203.0.113.42".parse().unwrap());
+        r.headers_mut()
+            .insert("x-forwarded-for", "10.0.0.1".parse().unwrap());
+        r.extensions_mut().insert(ConnectInfo::<SocketAddr>(
+            "127.0.0.1:1234".parse().unwrap(),
+        ));
+        let key = FlyClientIpKeyExtractor.extract(&r).unwrap();
+        assert_eq!(key, "203.0.113.42");
+    }
+
+    #[test]
+    fn extractor_falls_back_to_xff_first_hop() {
+        let mut r = req();
+        r.headers_mut().insert(
+            "x-forwarded-for",
+            "203.0.113.7, 10.0.0.1, 192.168.0.1".parse().unwrap(),
+        );
+        let key = FlyClientIpKeyExtractor.extract(&r).unwrap();
+        assert_eq!(key, "203.0.113.7");
+    }
+
+    #[test]
+    fn extractor_trims_whitespace_in_xff() {
+        let mut r = req();
+        r.headers_mut().insert(
+            "x-forwarded-for",
+            "   1.2.3.4   ,5.6.7.8".parse().unwrap(),
+        );
+        let key = FlyClientIpKeyExtractor.extract(&r).unwrap();
+        assert_eq!(key, "1.2.3.4");
+    }
+
+    #[test]
+    fn extractor_falls_back_to_connect_info() {
+        let mut r = req();
+        r.extensions_mut().insert(ConnectInfo::<SocketAddr>(
+            "192.0.2.55:1234".parse().unwrap(),
+        ));
+        let key = FlyClientIpKeyExtractor.extract(&r).unwrap();
+        assert_eq!(key, "192.0.2.55");
+    }
+
+    #[test]
+    fn extractor_errors_when_nothing_is_available() {
+        let r = req();
+        assert!(FlyClientIpKeyExtractor.extract(&r).is_err());
+    }
+
+    #[test]
+    fn extractor_ignores_empty_fly_header() {
+        let mut r = req();
+        r.headers_mut()
+            .insert("fly-client-ip", "".parse().unwrap());
+        r.headers_mut()
+            .insert("x-forwarded-for", "9.9.9.9".parse().unwrap());
+        let key = FlyClientIpKeyExtractor.extract(&r).unwrap();
+        assert_eq!(key, "9.9.9.9");
+    }
+}

@@ -532,4 +532,80 @@ mod kani_proofs {
         let w = "kani-test-wallet";
         assert_eq!(hash_leaf(w, pts), hash_leaf(w, pts));
     }
+
+    // hash_leaf is injective on the points field: different points → different hash
+    // (under SHA-256, with negligible collision probability — Kani proves the
+    // function itself doesn't accidentally collapse them).
+    #[kani::proof]
+    fn hash_leaf_distinct_points_distinct_hashes() {
+        let p1: u64 = kani::any();
+        let p2: u64 = kani::any();
+        kani::assume(p1 != p2);
+        let h1 = hash_leaf("w", p1);
+        let h2 = hash_leaf("w", p2);
+        assert!(h1 != h2);
+    }
+
+    // Tampering ANY byte of the leaf must break verification against the same
+    // proof + root. Bounded to a 2-leaf tree to keep Kani tractable.
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn tampered_leaf_byte_fails_verification() {
+        let l0: [u8; 32] = kani::any();
+        let l1: [u8; 32] = kani::any();
+        let leaves = vec![l0, l1];
+        let tree = build_tree(&leaves);
+        let proof = tree.proof_for(0);
+
+        // Pick any byte position to flip.
+        let idx: usize = kani::any();
+        kani::assume(idx < 32);
+        let bit: u8 = kani::any();
+        kani::assume(bit != 0);
+
+        let mut tampered = l0;
+        tampered[idx] ^= bit;
+        kani::assume(tampered != l0);
+        assert!(!verify_proof(&tampered, &proof, &tree.root));
+    }
+
+    // A truncated proof never verifies (would-be sibling missing).
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn truncated_proof_fails() {
+        let l0: [u8; 32] = kani::any();
+        let l1: [u8; 32] = kani::any();
+        let l2: [u8; 32] = kani::any();
+        let l3: [u8; 32] = kani::any();
+        let leaves = vec![l0, l1, l2, l3];
+        let tree = build_tree(&leaves);
+
+        let mut proof = tree.proof_for(0);
+        // Original proof is non-empty for 4 leaves. Drop the top sibling.
+        let _ = proof.pop();
+        assert!(!verify_proof(&l0, &proof, &tree.root));
+    }
+
+    // Building the same tree twice gives the same root — vital for snapshot
+    // determinism across server restarts.
+    #[kani::proof]
+    #[kani::unwind(4)]
+    fn build_tree_is_deterministic() {
+        let l0: [u8; 32] = kani::any();
+        let l1: [u8; 32] = kani::any();
+        let l2: [u8; 32] = kani::any();
+        let leaves = vec![l0, l1, l2];
+        let t1 = build_tree(&leaves);
+        let t2 = build_tree(&leaves);
+        assert!(t1.root == t2.root);
+    }
+
+    // hash_pair_sorted only depends on the {a, b} set, not on order or content
+    // beyond that. Concretely: hash(a, b) == hash(b, a) ALWAYS.
+    #[kani::proof]
+    fn hash_pair_sorted_order_independent() {
+        let a: [u8; 32] = kani::any();
+        let b: [u8; 32] = kani::any();
+        assert_eq!(hash_pair_sorted(&a, &b), hash_pair_sorted(&b, &a));
+    }
 }

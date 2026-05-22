@@ -258,7 +258,7 @@ fn validate_rpc_endpoint(endpoint: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn is_unreachable_host(host: &str) -> bool {
+pub(crate) fn is_unreachable_host(host: &str) -> bool {
     let h = host.to_lowercase();
     if matches!(h.as_str(), "localhost" | "ip6-localhost" | "ip6-loopback") {
         return true;
@@ -283,4 +283,101 @@ fn is_unreachable_host(host: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unreachable_localhost_strings() {
+        assert!(is_unreachable_host("localhost"));
+        assert!(is_unreachable_host("LOCALHOST"));
+        assert!(is_unreachable_host("ip6-localhost"));
+        assert!(is_unreachable_host("ip6-loopback"));
+    }
+
+    #[test]
+    fn unreachable_v4_loopback() {
+        assert!(is_unreachable_host("127.0.0.1"));
+        assert!(is_unreachable_host("127.255.255.254"));
+    }
+
+    #[test]
+    fn unreachable_v4_rfc1918() {
+        assert!(is_unreachable_host("10.0.0.1"));
+        assert!(is_unreachable_host("10.255.255.255"));
+        assert!(is_unreachable_host("172.16.0.1"));
+        assert!(is_unreachable_host("172.31.255.255"));
+        assert!(is_unreachable_host("192.168.0.1"));
+        assert!(is_unreachable_host("192.168.255.255"));
+    }
+
+    #[test]
+    fn unreachable_v4_link_local_and_unspecified_and_broadcast() {
+        assert!(is_unreachable_host("169.254.1.1"));
+        assert!(is_unreachable_host("0.0.0.0"));
+        assert!(is_unreachable_host("255.255.255.255"));
+    }
+
+    #[test]
+    fn unreachable_v6_loopback_and_ula() {
+        assert!(is_unreachable_host("::1"));
+        assert!(is_unreachable_host("::"));
+        // fc00::/7 is the IPv6 unique-local range.
+        assert!(is_unreachable_host("fc00::1"));
+        assert!(is_unreachable_host("fd00::1"));
+    }
+
+    #[test]
+    fn reachable_public_ips_pass() {
+        assert!(!is_unreachable_host("1.1.1.1"));
+        assert!(!is_unreachable_host("8.8.8.8"));
+        assert!(!is_unreachable_host("172.32.0.1")); // just past 172.16/12
+        assert!(!is_unreachable_host("192.169.0.1")); // just past 192.168/16
+        assert!(!is_unreachable_host("2606:4700::1111"));
+    }
+
+    #[test]
+    fn reachable_public_hostnames_pass() {
+        // Hostnames that don't parse as IPs and aren't the localhost aliases
+        // get through — DNS could still resolve them to something private,
+        // but that's a DNS-layer concern, not a URL-shape one.
+        assert!(!is_unreachable_host("zebra.example.com"));
+        assert!(!is_unreachable_host("rpc.zcash.org"));
+        assert!(!is_unreachable_host("node-1.depinzcash.com"));
+    }
+
+    #[test]
+    fn validate_endpoint_accepts_https_public() {
+        assert!(validate_rpc_endpoint("https://rpc.example.com:8232").is_ok());
+        assert!(validate_rpc_endpoint("http://1.2.3.4:8232").is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_localhost() {
+        assert!(validate_rpc_endpoint("http://localhost:8232").is_err());
+        assert!(validate_rpc_endpoint("http://127.0.0.1:8232").is_err());
+        assert!(validate_rpc_endpoint("http://[::1]:8232").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_private_ip() {
+        assert!(validate_rpc_endpoint("http://10.0.0.5:8232").is_err());
+        assert!(validate_rpc_endpoint("http://192.168.1.1:8232").is_err());
+        assert!(validate_rpc_endpoint("http://172.16.0.1:8232").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_bad_scheme() {
+        assert!(validate_rpc_endpoint("ftp://example.com").is_err());
+        assert!(validate_rpc_endpoint("file:///etc/passwd").is_err());
+        assert!(validate_rpc_endpoint("ws://example.com").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_garbage() {
+        assert!(validate_rpc_endpoint("not a url").is_err());
+        assert!(validate_rpc_endpoint("").is_err());
+    }
 }

@@ -282,7 +282,8 @@ pub async fn poll_one_node(state: &AppState, node: &Node, trusted_tip: Option<u6
 }
 
 fn normalize_hash(s: &str) -> String {
-    s.trim().trim_start_matches("0x").to_lowercase()
+    let lower = s.trim().to_lowercase();
+    lower.trim_start_matches("0x").to_string()
 }
 
 async fn snapshot_loop(state: AppState) {
