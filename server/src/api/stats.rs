@@ -48,11 +48,15 @@ pub async fn leaderboard(
     Query(q): Query<LeaderboardQuery>,
 ) -> AppResult<Json<Vec<WalletStats>>> {
     let limit = q.limit.clamp(1, 500);
+    if let Some(cached) = state.cached_leaderboard(limit).await {
+        return Ok(Json(cached));
+    }
     let cfg = state.config();
     let rows = state
         .store()
         .leaderboard(cfg.network.as_str(), cfg.min_real_height, limit)
         .await?;
+    state.store_leaderboard(limit, rows.clone()).await;
     Ok(Json(rows))
 }
 

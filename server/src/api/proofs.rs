@@ -269,10 +269,23 @@ pub async fn list_recent(
         }
     }
     let wallet_filter = q.wallet.as_deref().filter(|s| !s.is_empty());
+
+    // Only the unfiltered list is hot enough to cache — filtered queries are
+    // user-driven and rare.
+    let cache_eligible = verdict.is_none() && wallet_filter.is_none();
+    if cache_eligible {
+        if let Some(cached) = state.cached_recent_proofs(limit).await {
+            return Ok(Json(cached));
+        }
+    }
+
     let proofs = state
         .store()
         .list_recent_proofs(state.config().network.as_str(), limit, verdict, wallet_filter)
         .await?;
+    if cache_eligible {
+        state.store_recent_proofs(limit, proofs.clone()).await;
+    }
     Ok(Json(proofs))
 }
 

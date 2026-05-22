@@ -188,11 +188,15 @@ pub async fn list_active(
     Query(q): Query<ExplorerListQuery>,
 ) -> AppResult<Json<Vec<PublicNode>>> {
     let limit = q.limit.clamp(1, 500);
+    if let Some(cached) = state.cached_active_nodes(limit).await {
+        return Ok(Json(cached.iter().map(PublicNode::from).collect()));
+    }
     let cfg = state.config();
     let nodes = state
         .store()
         .list_active_nodes(cfg.network.as_str(), cfg.min_real_height, limit)
         .await?;
+    state.store_active_nodes(limit, nodes.clone()).await;
     Ok(Json(nodes.iter().map(PublicNode::from).collect()))
 }
 
