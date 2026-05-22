@@ -13,7 +13,17 @@ use crate::{
 
 pub async fn network(State(state): State<AppState>) -> AppResult<Json<NetworkStats>> {
     let cfg = state.config();
-    let mut s = state.store().network_stats(cfg.network.as_str()).await?;
+    // Hot-path optimisation: the 5-COUNT aggregate over 200K+ proofs takes
+    // tens of seconds on Fly's small VM. Serve a 30s-old snapshot whenever
+    // we have one — the public counter doesn't need to be real-time.
+    let mut s = match state.cached_network_stats().await {
+        Some(cached) => cached,
+        None => {
+            let fresh = state.store().network_stats(cfg.network.as_str()).await?;
+            state.store_network_stats(fresh.clone()).await;
+            fresh
+        }
+    };
     s.spl_mint = cfg.spl_mint.clone();
     s.solana_cluster = cfg.solana_cluster.clone();
     s.trusted_tip_height = state.trusted_tip().await;

@@ -477,45 +477,47 @@ impl SqliteStore {
     // ---- stats --------------------------------------------------------------
 
     pub async fn network_stats(&self, network: &str) -> anyhow::Result<NetworkStats> {
-        // Every stat filters on `last_proof_at IS NOT NULL` so:
-        //   - signup-only bots never contribute,
-        //   - admin-purged nodes drop from every counter (CASCADE removes
-        //     their proofs too, so the proof counts adjust automatically).
-        let total_nodes: i64 = sqlx::query_scalar(
+        // Run the 5 aggregates in parallel — they all hit the same pool but
+        // SQLite serialises writes anyway, and reads can interleave. On a hot
+        // pool this collapses ~5x sequential RTTs into ~1x.
+        let total_nodes_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM nodes WHERE network = ?1 AND last_proof_at IS NOT NULL",
         )
         .bind(network)
-        .fetch_one(&self.pool)
-        .await?;
-        let active_nodes: i64 = sqlx::query_scalar(
+        .fetch_one(&self.pool);
+        let active_nodes_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM nodes WHERE network = ?1 AND status = 'active' AND last_proof_at IS NOT NULL",
         )
         .bind(network)
-        .fetch_one(&self.pool)
-        .await?;
-        let total_proofs: i64 = sqlx::query_scalar(
+        .fetch_one(&self.pool);
+        let total_proofs_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM proofs p
                 JOIN nodes n ON n.id = p.node_id
                 WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL",
         )
         .bind(network)
-        .fetch_one(&self.pool)
-        .await?;
-        let accepted_proofs: i64 = sqlx::query_scalar(
+        .fetch_one(&self.pool);
+        let accepted_proofs_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM proofs p
                 JOIN nodes n ON n.id = p.node_id
                 WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL AND p.verdict = 'accepted'",
         )
         .bind(network)
-        .fetch_one(&self.pool)
-        .await?;
-        let total_points: i64 = sqlx::query_scalar(
+        .fetch_one(&self.pool);
+        let total_points_f = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(SUM(points), 0) FROM nodes
                 WHERE network = ?1 AND last_proof_at IS NOT NULL",
         )
         .bind(network)
-        .fetch_one(&self.pool)
-        .await?;
+        .fetch_one(&self.pool);
+
+        let (total_nodes, active_nodes, total_proofs, accepted_proofs, total_points) = tokio::try_join!(
+            total_nodes_f,
+            active_nodes_f,
+            total_proofs_f,
+            accepted_proofs_f,
+            total_points_f,
+        )?;
 
         Ok(NetworkStats {
             total_nodes: total_nodes as u32,
