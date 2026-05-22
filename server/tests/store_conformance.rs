@@ -352,10 +352,11 @@ async fn network_stats_count_correctly() {
         n.status = if i == 2 { NodeStatus::Registered } else { NodeStatus::Active };
         if i < 2 {
             n.last_proof_at = Some(Utc::now());
+            n.last_height = Some(100);
         }
         store.insert_node(&n, &format!("t{i}")).await.unwrap();
     }
-    let stats = store.network_stats("mainnet").await.unwrap();
+    let stats = store.network_stats("mainnet", 0).await.unwrap();
     // 2 nodes have proofs (wA active, wB active), 1 has none (wC registered)
     assert_eq!(stats.total_nodes, 2);
     assert_eq!(stats.active_nodes, 2);
@@ -367,13 +368,14 @@ async fn leaderboard_orders_by_total_points_desc() {
     let store = fresh_store().await;
     for (i, (wallet, pts)) in [("low", 5u64), ("mid", 50), ("hi", 500)].iter().enumerate() {
         let mut n = sample_node(wallet, None);
-        // leaderboard now filters to nodes with last_proof_at set, so
-        // simulate an accepted proof here.
+        // leaderboard now filters to nodes with last_proof_at set + last_height
+        // above the threshold (passed as 0 in this test). Set both.
         n.last_proof_at = Some(Utc::now());
+        n.last_height = Some(100);
         store.insert_node(&n, &format!("t{i}")).await.unwrap();
         store.add_uptime_and_points(n.id, 0, *pts).await.unwrap();
     }
-    let board = store.leaderboard("mainnet", 10).await.unwrap();
+    let board = store.leaderboard("mainnet", 0, 10).await.unwrap();
     assert_eq!(board[0].wallet, "hi");
     assert_eq!(board[0].total_points, 500);
     assert_eq!(board[1].wallet, "mid");

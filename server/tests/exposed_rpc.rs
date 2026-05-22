@@ -107,6 +107,7 @@ fn cfg(trusted_rpcs: Vec<String>) -> Config {
         rate_limit_burst: 5000,
         registration_enabled: true,
         max_nodes_per_wallet: 5,
+        min_real_height: 0,
         spl_mint: None,
         solana_cluster: "devnet".into(),
         network: ZcashNetwork::Mainnet,

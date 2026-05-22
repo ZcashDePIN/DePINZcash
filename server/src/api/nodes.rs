@@ -188,9 +188,10 @@ pub async fn list_active(
     Query(q): Query<ExplorerListQuery>,
 ) -> AppResult<Json<Vec<PublicNode>>> {
     let limit = q.limit.clamp(1, 500);
+    let cfg = state.config();
     let nodes = state
         .store()
-        .list_active_nodes(state.config().network.as_str(), limit)
+        .list_active_nodes(cfg.network.as_str(), cfg.min_real_height, limit)
         .await?;
     Ok(Json(nodes.iter().map(PublicNode::from).collect()))
 }

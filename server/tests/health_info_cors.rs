@@ -38,6 +38,7 @@ fn cfg(cors: Vec<String>, mint: Option<String>) -> Config {
         rate_limit_burst: 5000,
         registration_enabled: true,
         max_nodes_per_wallet: 5,
+        min_real_height: 0,
         spl_mint: mint,
         solana_cluster: "mainnet-beta".into(),
         network: ZcashNetwork::Mainnet,

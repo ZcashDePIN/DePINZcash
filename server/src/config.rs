@@ -29,6 +29,10 @@ pub struct Config {
     // Hard cap on how many nodes one Solana wallet can register. Blocks the
     // `node-1`/`node-2`/`node-3` label-spam pattern. 0 = unlimited.
     pub max_nodes_per_wallet: u32,
+    // Public stats / explorer only count nodes whose last accepted proof is at
+    // a height ≥ this threshold. Filters out bots fabricating heights way
+    // below mainnet tip. 0 = disabled (useful for testnet / fresh devnet).
+    pub min_real_height: u64,
     // $ZePIN (SPL) reward mint — referenced by snapshot publisher and surfaced to clients.
     pub spl_mint: Option<String>,
     pub solana_cluster: String,
@@ -128,6 +132,10 @@ impl Config {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(5);
+        let min_real_height: u64 = std::env::var("MIN_REAL_HEIGHT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(3_000_000);
 
         let spl_mint = std::env::var("SPL_MINT").ok().filter(|s| !s.is_empty());
         let solana_cluster = std::env::var("SOLANA_CLUSTER").unwrap_or_else(|_| "devnet".to_string());
@@ -158,6 +166,7 @@ impl Config {
             rate_limit_burst,
             registration_enabled,
             max_nodes_per_wallet,
+            min_real_height,
             spl_mint,
             solana_cluster,
             network,

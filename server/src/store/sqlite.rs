@@ -146,18 +146,25 @@ impl SqliteStore {
         rows.into_iter().map(node_from_row).collect()
     }
 
-    // Public explorer: nodes that have at least one accepted proof, ordered by
-    // most recently active. Filters out registration-only spam.
-    pub async fn list_active_nodes(&self, network: &str, limit: i64) -> anyhow::Result<Vec<Node>> {
+    // Public explorer: nodes that have at least one accepted proof at a real
+    // height, ordered by most recently active. Filters out registration-only
+    // spam and height-fabricators.
+    pub async fn list_active_nodes(
+        &self,
+        network: &str,
+        min_height: u64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Node>> {
         let rows = sqlx::query(
             r#"SELECT id, wallet, kind, label, rpc_endpoint, network, status,
                 last_height, last_block_hash, last_proof_at, registered_at, points, uptime_seconds
                 FROM nodes
-                WHERE network = ?1 AND last_proof_at IS NOT NULL
+                WHERE network = ?1 AND last_proof_at IS NOT NULL AND last_height >= ?2
                 ORDER BY last_proof_at DESC
-                LIMIT ?2"#,
+                LIMIT ?3"#,
         )
         .bind(network)
+        .bind(min_height as i64)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
@@ -476,39 +483,52 @@ impl SqliteStore {
 
     // ---- stats --------------------------------------------------------------
 
-    pub async fn network_stats(&self, network: &str) -> anyhow::Result<NetworkStats> {
+    pub async fn network_stats(&self, network: &str, min_height: u64) -> anyhow::Result<NetworkStats> {
+        let min_h = min_height as i64;
         // Run the 5 aggregates in parallel — they all hit the same pool but
         // SQLite serialises writes anyway, and reads can interleave. On a hot
         // pool this collapses ~5x sequential RTTs into ~1x.
+        // All 5 aggregates filter on the same "real node" predicate:
+        //   last_proof_at IS NOT NULL   AND last_height >= min_h
+        // The height filter knocks out wallets fabricating tiny heights.
         let total_nodes_f = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(1) FROM nodes WHERE network = ?1 AND last_proof_at IS NOT NULL",
+            "SELECT COUNT(1) FROM nodes
+                WHERE network = ?1 AND last_proof_at IS NOT NULL AND last_height >= ?2",
         )
         .bind(network)
+        .bind(min_h)
         .fetch_one(&self.pool);
         let active_nodes_f = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(1) FROM nodes WHERE network = ?1 AND status = 'active' AND last_proof_at IS NOT NULL",
+            "SELECT COUNT(1) FROM nodes
+                WHERE network = ?1 AND status = 'active'
+                  AND last_proof_at IS NOT NULL AND last_height >= ?2",
         )
         .bind(network)
+        .bind(min_h)
         .fetch_one(&self.pool);
         let total_proofs_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM proofs p
                 JOIN nodes n ON n.id = p.node_id
-                WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL",
+                WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL AND n.last_height >= ?2",
         )
         .bind(network)
+        .bind(min_h)
         .fetch_one(&self.pool);
         let accepted_proofs_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM proofs p
                 JOIN nodes n ON n.id = p.node_id
-                WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL AND p.verdict = 'accepted'",
+                WHERE n.network = ?1 AND n.last_proof_at IS NOT NULL
+                  AND n.last_height >= ?2 AND p.verdict = 'accepted'",
         )
         .bind(network)
+        .bind(min_h)
         .fetch_one(&self.pool);
         let total_points_f = sqlx::query_scalar::<_, i64>(
             "SELECT COALESCE(SUM(points), 0) FROM nodes
-                WHERE network = ?1 AND last_proof_at IS NOT NULL",
+                WHERE network = ?1 AND last_proof_at IS NOT NULL AND last_height >= ?2",
         )
         .bind(network)
+        .bind(min_h)
         .fetch_one(&self.pool);
 
         let (total_nodes, active_nodes, total_proofs, accepted_proofs, total_points) = tokio::try_join!(
@@ -532,7 +552,12 @@ impl SqliteStore {
         })
     }
 
-    pub async fn leaderboard(&self, network: &str, limit: i64) -> anyhow::Result<Vec<WalletStats>> {
+    pub async fn leaderboard(
+        &self,
+        network: &str,
+        min_height: u64,
+        limit: i64,
+    ) -> anyhow::Result<Vec<WalletStats>> {
         let rows = sqlx::query(
             r#"SELECT wallet,
                 COUNT(1) AS nodes,
@@ -540,12 +565,13 @@ impl SqliteStore {
                 COALESCE(SUM(uptime_seconds), 0) AS total_uptime,
                 MAX(last_proof_at) AS last_seen
                 FROM nodes
-                WHERE network = ?1 AND last_proof_at IS NOT NULL
+                WHERE network = ?1 AND last_proof_at IS NOT NULL AND last_height >= ?2
                 GROUP BY wallet
                 ORDER BY total_points DESC
-                LIMIT ?2"#,
+                LIMIT ?3"#,
         )
         .bind(network)
+        .bind(min_height as i64)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;

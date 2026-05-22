@@ -19,7 +19,10 @@ pub async fn network(State(state): State<AppState>) -> AppResult<Json<NetworkSta
     let mut s = match state.cached_network_stats().await {
         Some(cached) => cached,
         None => {
-            let fresh = state.store().network_stats(cfg.network.as_str()).await?;
+            let fresh = state
+                .store()
+                .network_stats(cfg.network.as_str(), cfg.min_real_height)
+                .await?;
             state.store_network_stats(fresh.clone()).await;
             fresh
         }
@@ -45,7 +48,11 @@ pub async fn leaderboard(
     Query(q): Query<LeaderboardQuery>,
 ) -> AppResult<Json<Vec<WalletStats>>> {
     let limit = q.limit.clamp(1, 500);
-    let rows = state.store().leaderboard(state.config().network.as_str(), limit).await?;
+    let cfg = state.config();
+    let rows = state
+        .store()
+        .leaderboard(cfg.network.as_str(), cfg.min_real_height, limit)
+        .await?;
     Ok(Json(rows))
 }
 
