@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous},
     ConnectOptions, Row,
 };
 use std::str::FromStr;
@@ -23,7 +23,14 @@ impl SqliteStore {
         let opts = SqliteConnectOptions::from_str(url)
             .context("parsing sqlite url")?
             .create_if_missing(true)
-            .busy_timeout(Duration::from_secs(5))
+            // WAL: readers don't block writers and vice versa. Without this,
+            // the slow leaderboard SELECT was queuing up register-time INSERTs,
+            // pushing the relay-side request past its 15s client timeout.
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            // Bigger busy_timeout so transient lock contention waits patiently
+            // instead of returning SQLITE_BUSY mid-request.
+            .busy_timeout(Duration::from_secs(30))
             .foreign_keys(true)
             .log_statements(tracing::log::LevelFilter::Trace);
 

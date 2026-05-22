@@ -188,7 +188,7 @@ async fn register(args: RegisterArgs) -> Result<()> {
     });
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(60))
         .build()?;
     let url = format!("{}/api/nodes/register", args.api.trim_end_matches('/'));
     let resp = client.post(&url).json(&body).send().await?;
@@ -264,7 +264,7 @@ async fn submit_once(args: &SubmitArgs) -> Result<serde_json::Value> {
 
     let url = format!("{}/api/proofs/submit", args.api.trim_end_matches('/'));
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(60))
         .build()?;
     let resp = client.post(&url).json(&body).send().await?;
     let status = resp.status();
