@@ -36,7 +36,10 @@ impl SqliteStore {
 
         let pool = SqlitePoolOptions::new()
             .max_connections(8)
-            .acquire_timeout(Duration::from_secs(10))
+            // First-connection setup can be slow when SQLite has to recover a
+            // large WAL from an unclean shutdown (which is exactly how we got
+            // here). 60s gives it plenty of room before bailing.
+            .acquire_timeout(Duration::from_secs(60))
             .connect_with(opts)
             .await
             .context("opening sqlite pool")?;
