@@ -41,6 +41,7 @@ fn test_config() -> Config {
         rate_limit_per_second: 1000,
         rate_limit_burst: 5000,
         registration_enabled: true,
+        max_nodes_per_wallet: 5,
         spl_mint: None,
         solana_cluster: "devnet".into(),
         network: ZcashNetwork::Mainnet,
@@ -354,4 +355,23 @@ async fn returns_auth_token_and_node_id() {
     assert_eq!(s, StatusCode::OK);
     assert!(b["node"]["id"].as_str().unwrap().len() >= 32);
     assert_eq!(b["auth_token"].as_str().unwrap().len(), 64); // 32 bytes hex
+}
+
+#[tokio::test]
+async fn caps_nodes_per_wallet_at_max() {
+    // build_state's config sets max_nodes_per_wallet = 5; the 6th must be blocked.
+    let state = build_state().await;
+    let app = || api::router(state.clone());
+    let (wallet, sk) = fresh_kp();
+
+    for i in 0..5u32 {
+        let nonce = format!("cap-test-{:016x}", i);
+        let body = register_body(&wallet, &sk, &nonce, "zebra-full", &format!("label-{i}"));
+        let (s, b) = post_json(app(), "/api/nodes/register", body).await;
+        assert_eq!(s, StatusCode::OK, "register #{i} should succeed: {b}");
+    }
+
+    let body = register_body(&wallet, &sk, "cap-test-overflow0", "zebra-full", "overflow");
+    let (s, _) = post_json(app(), "/api/nodes/register", body).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "6th node for same wallet must be blocked");
 }

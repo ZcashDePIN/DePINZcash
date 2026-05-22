@@ -110,11 +110,17 @@ pub async fn register(
         return Err(AppError::conflict("nonce already used"));
     }
 
+    let existing = store.list_nodes_by_wallet(&req.wallet).await?;
+
+    // Hard cap on nodes per wallet — blocks the label-spam farming pattern.
+    let cap = state.config().max_nodes_per_wallet;
+    if cap > 0 && existing.len() as u32 >= cap {
+        return Err(AppError::Forbidden);
+    }
+
     let label_for_uniq = req.label.clone().unwrap_or_default();
-    let already: Vec<_> = store
-        .list_nodes_by_wallet(&req.wallet)
-        .await?
-        .into_iter()
+    let already: Vec<_> = existing
+        .iter()
         .filter(|n| n.kind == kind && n.label.clone().unwrap_or_default() == label_for_uniq)
         .collect();
     if !already.is_empty() {

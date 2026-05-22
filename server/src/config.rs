@@ -26,6 +26,9 @@ pub struct Config {
     pub rate_limit_burst: u32,
     // Kill-switch for new node registration. Existing nodes keep working.
     pub registration_enabled: bool,
+    // Hard cap on how many nodes one Solana wallet can register. Blocks the
+    // `node-1`/`node-2`/`node-3` label-spam pattern. 0 = unlimited.
+    pub max_nodes_per_wallet: u32,
     // $ZePIN (SPL) reward mint — referenced by snapshot publisher and surfaced to clients.
     pub spl_mint: Option<String>,
     pub solana_cluster: String,
@@ -121,6 +124,10 @@ impl Config {
             std::env::var("REGISTRATION_ENABLED").unwrap_or_default().to_lowercase().as_str(),
             "false" | "0" | "no" | "off"
         );
+        let max_nodes_per_wallet: u32 = std::env::var("MAX_NODES_PER_WALLET")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(5);
 
         let spl_mint = std::env::var("SPL_MINT").ok().filter(|s| !s.is_empty());
         let solana_cluster = std::env::var("SOLANA_CLUSTER").unwrap_or_else(|_| "devnet".to_string());
@@ -150,6 +157,7 @@ impl Config {
             rate_limit_per_second,
             rate_limit_burst,
             registration_enabled,
+            max_nodes_per_wallet,
             spl_mint,
             solana_cluster,
             network,
