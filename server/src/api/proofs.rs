@@ -22,7 +22,9 @@ pub struct SubmitProofRequest {
     pub nonce: String,
     pub claimed_height: u64,
     pub claimed_block_hash: String,
-    pub proof_timestamp: DateTime<Utc>,
+    // RFC3339 string. Signed verbatim — never re-formatted through chrono.
+    // See the same note in RegisterRequest.
+    pub proof_timestamp: String,
     #[serde(default)]
     pub binary_hash: Option<String>,
     #[serde(default)]
@@ -50,7 +52,10 @@ pub async fn submit(
         return Err(AppError::bad_request("claimed_block_hash empty or oversized"));
     }
     auth::check_nonce(&req.nonce).map_err(AppError::from)?;
-    auth::check_timestamp(req.proof_timestamp, state.config().max_clock_skew).map_err(AppError::from)?;
+    let proof_ts = DateTime::parse_from_rfc3339(&req.proof_timestamp)
+        .map_err(|e| AppError::bad_request(format!("invalid proof_timestamp: {e}")))?
+        .with_timezone(&Utc);
+    auth::check_timestamp(proof_ts, state.config().max_clock_skew).map_err(AppError::from)?;
 
     let store = state.store();
     let node = store
@@ -77,7 +82,7 @@ pub async fn submit(
         &req.node_id.to_string(),
         req.claimed_height,
         &req.claimed_block_hash,
-        &req.proof_timestamp.to_rfc3339(),
+        &req.proof_timestamp,
         &req.nonce,
     );
     auth::verify_solana_signature(&req.wallet, &msg, &req.signature)
@@ -176,7 +181,7 @@ pub async fn submit(
         wallet: req.wallet.clone(),
         claimed_height: req.claimed_height,
         claimed_block_hash: req.claimed_block_hash.clone(),
-        proof_timestamp: req.proof_timestamp,
+        proof_timestamp: proof_ts,
         binary_hash: req.binary_hash.clone(),
         uptime_seconds: req.uptime_seconds,
         peers: req.peers,
@@ -202,7 +207,7 @@ pub async fn submit(
                 req.claimed_height,
                 &req.claimed_block_hash,
                 points_awarded,
-                req.proof_timestamp,
+                proof_ts,
             )
             .await?;
     }
@@ -336,7 +341,7 @@ mod tests {
             nonce: "n".into(),
             claimed_height: height,
             claimed_block_hash: "h".into(),
-            proof_timestamp: Utc::now(),
+            proof_timestamp: Utc::now().to_rfc3339(),
             binary_hash: None,
             uptime_seconds: Some(uptime),
             peers: Some(peers),

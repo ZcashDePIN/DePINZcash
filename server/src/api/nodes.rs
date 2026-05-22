@@ -18,7 +18,10 @@ pub struct RegisterRequest {
     pub wallet: String,
     pub signature: String,
     pub nonce: String,
-    pub timestamp: DateTime<Utc>,
+    // RFC3339 string. We sign the literal bytes the client sent, never re-format
+    // through chrono — chrono normalizes UTC to "+00:00" but JS toISOString()
+    // uses "Z", which would break ed25519 verification byte-for-byte.
+    pub timestamp: String,
     pub kind: String,
     #[serde(default)]
     pub label: Option<String>,
@@ -80,7 +83,10 @@ pub async fn register(
         .ok_or_else(|| AppError::bad_request(format!("unknown node kind: {}", req.kind)))?;
 
     auth::check_nonce(&req.nonce).map_err(AppError::from)?;
-    auth::check_timestamp(req.timestamp, state.config().max_clock_skew).map_err(AppError::from)?;
+    let ts = DateTime::parse_from_rfc3339(&req.timestamp)
+        .map_err(|e| AppError::bad_request(format!("invalid timestamp: {e}")))?
+        .with_timezone(&Utc);
+    auth::check_timestamp(ts, state.config().max_clock_skew).map_err(AppError::from)?;
 
     if let Some(endpoint) = &req.rpc_endpoint {
         validate_rpc_endpoint(endpoint)?;
@@ -90,7 +96,7 @@ pub async fn register(
     let msg = auth::registration_message(
         &req.wallet,
         &req.nonce,
-        &req.timestamp.to_rfc3339(),
+        &req.timestamp,
         kind.as_str(),
         state.config().network.as_str(),
         &label,
