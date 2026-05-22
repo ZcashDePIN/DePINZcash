@@ -45,14 +45,11 @@ primary_region = "iad"
     hard_limit = 50
     soft_limit = 30
 
-  [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "10s"
-    method = "GET"
-    path = "/healthz"
+  # Health check intentionally disabled during the bot-traffic incident — Fly
+  # was refusing to route ANY traffic (including healthz pings) because the
+  # check kept failing, creating a deadlock. Re-enable once traffic stabilises.
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
-  cpus = 1
+  size = "shared-cpu-2x"
+  memory = "1024mb"
+  cpus = 2
