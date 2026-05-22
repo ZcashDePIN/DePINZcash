@@ -175,7 +175,7 @@ async fn exposed_rpc_loop(state: AppState) {
     }
 }
 
-async fn poll_one_node(state: &AppState, node: &Node, trusted_tip: Option<u64>) -> anyhow::Result<()> {
+pub async fn poll_one_node(state: &AppState, node: &Node, trusted_tip: Option<u64>) -> anyhow::Result<()> {
     let Some(endpoint) = node.rpc_endpoint.as_deref() else {
         return Ok(());
     };

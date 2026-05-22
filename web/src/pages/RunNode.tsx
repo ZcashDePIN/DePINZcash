@@ -256,6 +256,14 @@ listen_addr = "127.0.0.1:8232"`}</Code>
               polls it every 5 minutes. Same verification, zero install on your side.
               Use the registration form with your RPC URL set.
             </p>
+            <a
+              href="https://github.com/ZcashDePIN/DePINZcash/blob/main/docs/EXPOSED_RPC.md"
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-zcash-gold hover:underline"
+            >
+              Full setup guide →
+            </a>
           </div>
         </div>
       </section>
