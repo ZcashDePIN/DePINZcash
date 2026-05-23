@@ -170,6 +170,7 @@ impl SqliteStore {
                 last_height, last_block_hash, last_proof_at, registered_at, points, uptime_seconds
                 FROM nodes
                 WHERE network = ?1 AND last_proof_at IS NOT NULL AND last_height >= ?2
+                  AND last_proof_at >= datetime('now', '-1 hour')
                 ORDER BY last_proof_at DESC
                 LIMIT ?3"#,
         )
@@ -508,10 +509,13 @@ impl SqliteStore {
         .bind(network)
         .bind(min_h)
         .fetch_one(&self.pool);
+        // "Active" = seen a proof in the last hour. Doesn't depend on the
+        // scheduler's staleness loop running (which is off in incident mode).
         let active_nodes_f = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(1) FROM nodes
-                WHERE network = ?1 AND status = 'active'
-                  AND last_proof_at IS NOT NULL AND last_height >= ?2",
+                WHERE network = ?1
+                  AND last_proof_at IS NOT NULL AND last_height >= ?2
+                  AND last_proof_at >= datetime('now', '-1 hour')",
         )
         .bind(network)
         .bind(min_h)

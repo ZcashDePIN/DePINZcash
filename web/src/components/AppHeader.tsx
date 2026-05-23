@@ -1,5 +1,4 @@
 import { NavLink } from "react-router-dom";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 const links = [
   { to: "/", label: "Home", end: true },
@@ -8,7 +7,6 @@ const links = [
   { to: "/leaderboard", label: "Leaderboard" },
   { to: "/explorer", label: "Explorer" },
   { to: "/dashboard", label: "Dashboard" },
-  { to: "/register", label: "Register node" },
 ];
 
 export function AppHeader() {
@@ -42,7 +40,6 @@ export function AppHeader() {
             </NavLink>
           ))}
         </nav>
-        <WalletMultiButton />
       </div>
       <div className="md:hidden">
         <div className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 pb-3">
