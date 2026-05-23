@@ -47,13 +47,19 @@ export function Explorer() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
+      <header className="flex flex-col gap-3">
         <h1 className="text-2xl font-semibold">Explorer</h1>
         <p className="text-sm text-zcash-subtle">
           Every registered node and every proof they submit. Each block hash links to
           Blockchair so you can verify it's a real Zcash mainnet block. Auto-refreshes
           every 30s.
         </p>
+        <a
+          href="#recent-proofs"
+          className="inline-flex w-fit items-center gap-2 rounded-md bg-zcash-gold px-4 py-2 text-sm font-semibold text-zcash-dark transition hover:bg-amber-300"
+        >
+          View verified block proofs ↓
+        </a>
       </header>
 
       {error && <ErrorBanner message={error} />}
@@ -134,7 +140,7 @@ export function Explorer() {
         )}
       </section>
 
-      <section className="flex flex-col gap-3">
+      <section id="recent-proofs" className="flex flex-col gap-3 scroll-mt-6">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold">Recent proofs</h2>
           <span className="text-xs text-zcash-subtle">
