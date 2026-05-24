@@ -79,6 +79,12 @@ pub async fn suspend_node(
 pub struct CleanupQuery {
     #[serde(default)]
     pub confirm: bool,
+    #[serde(default = "default_batch")]
+    pub batch: i64,
+}
+
+fn default_batch() -> i64 {
+    500
 }
 
 pub async fn cleanup(
@@ -125,30 +131,42 @@ pub async fn cleanup(
             "would_delete_excess_per_wallet": excess_count,
             "min_real_height": min_height,
             "max_nodes_per_wallet": max_per_wallet,
-            "hint": "add ?confirm=true to execute"
+            "batch_size": q.batch,
+            "hint": "add ?confirm=true to execute (deletes batch_size per call, repeat until 0)"
         })));
     }
 
-    // Execute pass 1: delete fake-height nodes.
+    // Batched deletes — keeps the DB lock short so other requests don't 503.
+    // Call repeatedly until both counts return 0.
+    let batch = q.batch.clamp(50, 2000);
+
+    // Pass 1: delete a batch of fake-height nodes.
     let deleted_fake = sqlx::query(
-        "DELETE FROM nodes WHERE last_height IS NOT NULL AND last_height < ?1 AND last_height > 0",
+        r#"DELETE FROM nodes WHERE id IN (
+             SELECT id FROM nodes
+             WHERE last_height IS NOT NULL AND last_height < ?1 AND last_height > 0
+             LIMIT ?2
+           )"#,
     )
     .bind(min_height)
+    .bind(batch)
     .execute(pool)
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("cleanup delete fake: {e}")))?
     .rows_affected();
 
-    // Execute pass 2: delete excess per-wallet nodes.
+    // Pass 2: delete a batch of excess-per-wallet nodes.
     let deleted_excess = sqlx::query(
         r#"DELETE FROM nodes WHERE id IN (
              SELECT id FROM (
                SELECT id, ROW_NUMBER() OVER (PARTITION BY wallet ORDER BY registered_at ASC) AS rn
                FROM nodes
              ) WHERE rn > ?1
+             LIMIT ?2
            )"#,
     )
     .bind(max_per_wallet)
+    .bind(batch)
     .execute(pool)
     .await
     .map_err(|e| AppError::Internal(anyhow::anyhow!("cleanup delete excess: {e}")))?
@@ -159,7 +177,8 @@ pub async fn cleanup(
         deleted_fake,
         deleted_excess,
         total,
-        "admin cleanup executed"
+        batch,
+        "admin cleanup batch executed"
     );
 
     Ok(Json(json!({
@@ -167,6 +186,8 @@ pub async fn cleanup(
         "deleted_fake_height": deleted_fake,
         "deleted_excess_per_wallet": deleted_excess,
         "total_deleted": total,
+        "remaining_fake_height": fake_height_count - deleted_fake as i64,
+        "remaining_excess": excess_count - deleted_excess as i64,
         "ok": true
     })))
 }
