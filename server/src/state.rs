@@ -11,8 +11,8 @@ use crate::{
     types::{NetworkStats, Node, Proof, WalletStats},
 };
 
-const STATS_CACHE_TTL: Duration = Duration::from_secs(30);
-const LIST_CACHE_TTL: Duration = Duration::from_secs(30);
+const STATS_CACHE_TTL: Duration = Duration::from_secs(300);
+const LIST_CACHE_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Clone)]
 pub struct AppState {
