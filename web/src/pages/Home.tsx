@@ -59,19 +59,13 @@ export function Home() {
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link to="/register" className="btn-primary">Register a node</Link>
+            <Link to="/register" className="btn-primary">How to register</Link>
             <Link to="/leaderboard" className="btn-outline">View leaderboard</Link>
           </div>
           {info && (
             <p className="text-xs text-zcash-subtle">
               Network <code className="text-zcash-text">{info.network}</code> ·
-              Solana cluster <code className="text-zcash-text">{info.solana_cluster}</code>
-              {info.spl_mint && (
-                <>
-                  {" · "}
-                  Mint <code className="text-zcash-text">{shortAddress(info.spl_mint, 6, 4)}</code>
-                </>
-              )}
+              Solana <code className="text-zcash-text">mainnet-beta</code>
             </p>
           )}
         </div>

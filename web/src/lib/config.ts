@@ -5,7 +5,7 @@ function envStr(value: string | undefined, fallback: string): string {
   return v === "" ? fallback : v;
 }
 
-const PROD_API = "https://depinzcash-server.fly.dev";
+const PROD_API = "https://api.zcashdepin.com";
 const DEV_API = "http://localhost:3000";
 
 function defaultApi(): string {
