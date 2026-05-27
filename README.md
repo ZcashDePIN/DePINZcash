@@ -2,14 +2,14 @@
 
 **Decentralized Physical Infrastructure Network for Zcash**
 
-Incentive layer for Zcash nodes. Earn rewards for running a Zebra full node or a lightwalletd server — the backend verifies your node against a trusted-RPC quorum and pays out in **$ZePIN** (an SPL token on Solana).
+Incentive layer for Zcash nodes. Earn **$ZePIN** for running a Zebra full node or a lightwalletd server — the backend verifies your node against a trusted-RPC quorum and distributes rewards on Solana.
 
-- **Site**: [zcashdepin.vercel.app](https://zcashdepin.vercel.app) (custom domain `zcashdepin.com` rolling out)
+- **Site**: [zcashdepin.com](https://zcashdepin.com)
 - **API**: [api.zcashdepin.com](https://api.zcashdepin.com)
+- **Explorer**: [zcashdepin.com/explorer](https://zcashdepin.com/explorer) — every block hash links to Blockchair for independent verification
 - **X / Twitter**: [@DePINZcash](https://x.com/DePINZcash)
-- **Launch bonus**: ~$40 in $ZePIN for registering a node and keeping it online for 24 hours.
 
-> **Rewards on Solana, for now.** Until [NU7](https://zips.z.cash/protocol/nu7) and [ZIP-227](https://zips.z.cash/zip-0227) land custom assets on Zcash, payouts use a custom $ZePIN token. Once native Zcash custom assets ship, the protocol migrates to ZEC-denominated assets without changing the operator flow. This is surfaced in `/api/info` under `rewards_note`.
+> **$ZePIN on Solana, for now.** Until [NU7](https://zips.z.cash/protocol/nu7) and [ZIP-227](https://zips.z.cash/zip-0227) ship custom assets on Zcash natively, rewards settle as $ZePIN on Solana mainnet-beta. Once native Zcash custom assets land, the protocol migrates without changing the operator flow.
 
 ---
 
@@ -20,113 +20,80 @@ Incentive layer for Zcash nodes. Earn rewards for running a Zebra full node or a
    │   depinzcash-    │ ─────────────────▶│  depinzcash-server  │ ───────────▶ │  Trusted Zcash   │
    │   relay (CLI)    │                   │   (Rust / Axum)     │              │  full nodes      │
    └────────▲─────────┘                   └─────────┬───────────┘              └──────────────────┘
-            │                                       │
-            │ reads Zebra metrics                   │ Merkle snapshot
-            ▼                                       ▼
-   ┌──────────────────┐                   ┌─────────────────────┐
-   │ Local Zebra full │                   │  Solana $ZePIN claim   │
-   │ node (RocksDB)   │                   │  (NU7/ZIP-227 ready)│
-   └──────────────────┘                   └─────────────────────┘
+            │                              ┌────────┘
+            │ reads Zebra metrics          │ polls operator's RPC (Exposed RPC mode)
+            ▼                              ▼
+   ┌──────────────────┐           ┌─────────────────────┐
+   │ Local Zebra full │           │  zepin-claim         │
+   │ node             │           │  (Anchor / Solana)   │
+   └──────────────────┘           └─────────────────────┘
 ```
 
 Three components, one repo:
 
-- **[server/](server/)** — Rust / Axum backend. Verifies signed proofs, runs the points/uptime scheduler, builds Merkle snapshots for $ZePIN claim distribution. Live at `api.zcashdepin.com` (Fly.io).
-- **[prover/](prover/)** — Two binaries:
-  - `depinzcash-prover` — Halo 2 ZK proof generator that reads Zebra state.
-  - `depinzcash-relay` — operator-side CLI that signs node-state submissions with a Solana keypair and posts them to the server.
-- **[web/](web/)** — React + Vite + Tailwind frontend with Solana wallet-adapter. Live at `zcashdepin.vercel.app` (Vercel).
-- **contracts/** — Solana program for $ZePIN claim distribution (planned).
+- **[server/](server/)** — Rust / Axum backend. Verifies proofs against a trusted-RPC quorum, runs the points/uptime/exposed-RPC scheduler, builds Merkle snapshots for $ZePIN claim distribution. Deployed on Fly.io.
+- **[prover/](prover/)** — `depinzcash-relay` CLI: operator-side binary that signs node-state submissions with a Solana keypair and posts them to the server. Supports `keygen`, `register`, `submit`, and `watch` subcommands.
+- **[web/](web/)** — React + Vite + Tailwind frontend. Deployed on Vercel.
+- **[programs/zepin-claim/](programs/zepin-claim/)** — Anchor scaffold for the $ZePIN Merkle-distributor claim program on Solana. Matches `server/src/merkle.rs` byte-for-byte (SHA-256 leaf hashing, sorted-pair internal nodes).
+- **[docs/](docs/)** — Operator guides including [Exposed RPC setup](docs/EXPOSED_RPC.md).
 
 ---
 
 ## Node types
 
-Two node types are supported, both rewarded:
-
 | Kind | Reward tier | Disk | RAM | When to choose |
 |---|---|---|---|---|
-| `zebra-full` | Higher | ~120 GB | 4–8 GB | You already run a full node or want the highest payout |
-| `lightwalletd` | Lower | ~30 GB (+ backing Zebra) | 1–2 GB | **Recommended for newcomers** — easier setup, smaller footprint |
+| `zebra-full` | Higher (10) | ~120 GB | 4–8 GB | You already run a full node or want the highest payout |
+| `lightwalletd` | Lower (6) | ~30 GB (+ backing Zebra) | 1–2 GB | **Recommended for newcomers** — easier setup |
 
-Setup guides on the site: [/run-node](https://zcashdepin.vercel.app/run-node) (Zebra) and [/run-lightwalletd](https://zcashdepin.vercel.app/run-lightwalletd) (recommended starting point).
+Setup guides: [/run-node](https://zcashdepin.com/run-node) (Zebra) · [/run-lightwalletd](https://zcashdepin.com/run-lightwalletd)
 
 ---
 
 ## Verification modes
 
-How the server confirms your node is real and synced. Pick one:
-
 | Mode | Status | Operator install | How it works |
 |---|---|---|---|
-| **Relay CLI** | ✅ Active now | `depinzcash-relay` binary (~400 LOC Rust, open source) | Operator-initiated: relay reads Zebra's tip every 5 min, signs with the Solana keypair, POSTs to the server. Quorum cross-checks the claimed block hash. |
-| **Exposed RPC** | 🚧 Coming soon | Nothing from us — just expose Zebra's JSON-RPC | Server-initiated: operator registers their public RPC URL; the server polls it periodically. Zero binary install. |
-
-Until Exposed RPC ships, all operators use the Relay CLI path. The home page on the live site shows the current status of both.
+| **Relay CLI** | ✅ Active | `depinzcash-relay` binary | Operator-initiated: relay reads Zebra's tip every 5 min, signs with the Solana keypair, POSTs to the server. Quorum cross-checks the block hash. |
+| **Exposed RPC** | ✅ Active | Nothing from us | Server-initiated: operator registers their public RPC URL, server polls `getblockcount` + `getblockhash` every 5 min. Zero binary install. [Setup guide →](docs/EXPOSED_RPC.md) |
 
 ---
 
-## Quick start (local prototype)
+## Registration (CLI only)
 
-Requires Rust 1.70+ and SQLite (bundled via sqlx).
+Node registration is done from the terminal — no browser wallet needed:
 
 ```bash
-# 1. Build server + relay
-cd server && cargo build --release
-cd ../prover && cargo build --release --bin depinzcash-relay
+# build the relay (one-time)
+git clone https://github.com/ZcashDePIN/DePINZcash
+cd DePINZcash/prover
+cargo build --release --bin depinzcash-relay
+sudo cp ./target/release/depinzcash-relay /usr/local/bin/
 
-# 2. Run server (writes ./depinzcash.sqlite, listens on :3000)
-cd ../server
-cp .env.example .env   # edit ADMIN_API_KEY, TRUSTED_RPCS, SPL_MINT
-./target/release/depinzcash-server
+# generate a Solana keypair
+mkdir -p ~/.depinzcash
+depinzcash-relay keygen --out ~/.depinzcash/solana-keypair.json
 
-# 3. From another shell, generate a Solana keypair + register a node
-cd /tmp/operator
-/path/to/depinzcash-relay keygen --out config/solana-keypair.json
-/path/to/depinzcash-relay register \
-    --api http://127.0.0.1:3000 \
-    --keypair config/solana-keypair.json \
+# register (relay mode)
+depinzcash-relay register \
+    --api https://api.zcashdepin.com \
+    --keypair ~/.depinzcash/solana-keypair.json \
     --kind zebra-full \
-    --label primary
+    --label my-node
 
-# 4. Submit a node-state proof (or use --proof-file with a Halo 2 proof JSON)
-/path/to/depinzcash-relay submit \
-    --api http://127.0.0.1:3000 \
-    --keypair config/solana-keypair.json \
-    --height 2500001 \
-    --block-hash 0000000000... \
-    --uptime-seconds 7200 --peers 12
+# or register with exposed RPC (no relay needed after this)
+depinzcash-relay register \
+    --api https://api.zcashdepin.com \
+    --keypair ~/.depinzcash/solana-keypair.json \
+    --kind zebra-full \
+    --label my-node \
+    --rpc-endpoint https://zebra.yourdomain.com
 
-# 5. Watch points / leaderboard
-curl http://127.0.0.1:3000/api/stats/network
-curl http://127.0.0.1:3000/api/stats/leaderboard
-curl http://127.0.0.1:3000/api/wallet/<your-wallet>/stats
+# start submitting proofs (relay mode)
+depinzcash-relay watch \
+    --state ~/.depinzcash/relay-state.json \
+    --node-rpc http://127.0.0.1:8232
 ```
-
-For continuous operation, the relay supports `watch`:
-
-```bash
-depinzcash-relay watch --interval-secs 300 \
-    --api http://127.0.0.1:3000 \
-    --keypair config/solana-keypair.json \
-    --proof-file proofs/latest.json
-```
-
----
-
-## Verification model
-
-**Permissive mode (dev/early):** if `TRUSTED_RPCS` is empty, the server accepts proofs without cross-checking and tags them `permissive-mode:no-trusted-rpcs`. Useful before you have RPC endpoints lined up.
-
-**Quorum mode (production):** set `TRUSTED_RPCS` to a comma-separated list of JSON-RPC endpoints (Zebra `--rpc-listen-addr`, zcashd, or a managed provider). The server calls `getblockcount` / `getblockhash <h>` on all of them, takes the majority answer, and rejects any submission whose claimed block hash diverges from the quorum at the same height. Configurable height drift via `MAX_HEIGHT_DRIFT` (default 8 blocks).
-
-Anti-cheat layers in place:
-
-- Ed25519 Solana signatures on every submission (registration + each proof).
-- Per-wallet nonce table — registration and proof nonces are single-use.
-- Clock skew window (`MAX_CLOCK_SKEW`, default 15m) on submitted timestamps.
-- Monotonic-height guard — a proof more than 1024 blocks behind a node's last accepted proof is rejected.
-- Random-depth block-hash challenges (`POST /api/challenges/request`) — server picks a random recent block height from the trusted quorum and asks the operator to prove they have its hash, which a freshly bootstrapped fake won't.
 
 ---
 
@@ -140,13 +107,24 @@ where: tier        = 10 (zebra-full) | 6 (lightwalletd)
        freshness   = max(0, 5 - height_drift_from_trusted_tip)
 ```
 
-On a fixed cadence (`SNAPSHOT_INTERVAL`, default `7d`) the server publishes a **Merkle snapshot** of lifetime points per wallet. The snapshot is sorted-pair / sorted-leaf so a Solana program can verify a claim against the root with a single `keccak`-style folding loop. Operators fetch their proof at:
+Weekly Merkle snapshots (`SNAPSHOT_INTERVAL`) hash `(wallet, points)` pairs into a sorted-pair SHA-256 tree. The Solana claim program verifies proofs against the published root. Operators fetch their claim:
 
 ```
 GET /api/wallet/<solana-pubkey>/claim/latest
 ```
 
-The Solana claim program lives in `contracts/` (planned next).
+---
+
+## Anti-bot protections
+
+- Ed25519 Solana signatures on every registration + proof submission
+- Per-wallet nonce table (single-use, prevents replay)
+- `MAX_NODES_PER_WALLET` cap (default 5) — blocks label-spam farming
+- `MIN_REAL_HEIGHT` filter (default 3,000,000) — bots submitting fake heights below mainnet tip are invisible to all public stats
+- Per-IP rate limiting via `Fly-Client-IP` header (not TCP peer)
+- Localhost / private-IP RPC endpoints rejected at registration
+- Kill-switches: `REGISTRATION_ENABLED`, `PROOF_SUBMISSION_ENABLED`, `SCHEDULER_ENABLED` — flip via `fly secrets set`
+- Admin cleanup endpoint: batched purge of fake-height nodes + per-wallet cap enforcement
 
 ---
 
@@ -155,131 +133,84 @@ The Solana claim program lives in `contracts/` (planned next).
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/healthz`, `/readyz` | Liveness + readiness |
-| GET | `/api/info` | Version, network, registration message format, $ZePIN mint |
-| POST | `/api/nodes/register` | Signed registration → returns `node_id` + `auth_token` |
-| GET | `/api/nodes/:id` | Public node info |
+| GET | `/api/info` | Version, network, features, $ZePIN mint |
+| POST | `/api/nodes/register` | Signed registration → `node_id` + `auth_token` |
+| GET | `/api/nodes` | Explorer: active nodes (last 1h, height ≥ 3M) |
+| GET | `/api/nodes/:id` | Single node detail |
+| GET | `/api/nodes/:id/proofs` | Per-node proof history |
+| GET | `/api/nodes/:id/series` | Daily points buckets (14d bar chart) |
 | GET | `/api/wallet/:wallet/nodes` | Nodes owned by wallet |
 | GET | `/api/wallet/:wallet/stats` | Aggregate points + uptime |
 | GET | `/api/wallet/:wallet/proofs` | Recent proofs |
 | GET | `/api/wallet/:wallet/claim/latest` | Latest Merkle claim payload |
 | POST | `/api/proofs/submit` | Signed proof submission |
-| POST | `/api/challenges/request` | Operator requests a random-depth challenge |
-| POST | `/api/challenges/submit` | Operator answers a challenge |
-| GET | `/api/stats/network` | Network-wide totals |
-| GET | `/api/stats/leaderboard` | Top wallets by points |
-| GET | `/api/snapshots/latest` | Latest published snapshot summary |
-| POST | `/api/admin/snapshot/publish` | Force-publish (requires `x-admin-key`) |
-
-Full signature/message formats are in `server/src/auth.rs` (`registration_message`, `proof_message`). The relay implements the same formats — both must agree byte-for-byte.
+| GET | `/api/proofs/recent` | Global proof feed (filterable: `?verdict=accepted&wallet=...`) |
+| POST | `/api/challenges/request` | Random-depth block-hash challenge |
+| POST | `/api/challenges/submit` | Challenge answer |
+| GET | `/api/stats/network` | Network-wide totals (cached 5 min) |
+| GET | `/api/stats/leaderboard` | Top wallets by points (cached 5 min) |
+| GET | `/api/snapshots/latest` | Latest published snapshot |
+| POST | `/api/admin/snapshot/publish` | Force-publish (`x-admin-key`) |
+| POST | `/api/admin/nodes/:id/purge` | Delete node + CASCADE (`x-admin-key`) |
+| POST | `/api/admin/nodes/:id/suspend` | Suspend node (`x-admin-key`) |
+| POST | `/api/admin/cleanup` | Batched bot purge — dry-run default (`x-admin-key`, `?confirm=true`) |
 
 ---
 
 ## Configuration
 
-Server reads `server/.env` (see `server/.env.example`). Key knobs:
+Server reads env vars. Key knobs:
 
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `BIND_ADDR` | `0.0.0.0:3000` | HTTP listener |
 | `DATABASE_URL` | `sqlite://depinzcash.sqlite?mode=rwc` | SQLite DSN |
 | `ZCASH_NETWORK` | `mainnet` | `mainnet` or `testnet` |
+| `SOLANA_CLUSTER` | `devnet` (prod: `mainnet-beta`) | Surfaced to clients |
 | `TRUSTED_RPCS` | (empty) | Comma-sep Zcash JSON-RPC quorum |
 | `ADMIN_API_KEY` | (empty) | Required for `/api/admin/*` |
-| `CORS_ALLOWED_ORIGINS` | (empty) | For the web frontend |
-| `MAX_HEIGHT_DRIFT` | `8` | Reject proofs that diverge by more than this |
+| `MAX_HEIGHT_DRIFT` | `8` | Reject proofs diverging by more |
 | `MAX_CLOCK_SKEW` | `15m` | Timestamp window |
-| `SNAPSHOT_INTERVAL` | `7d` | Reward snapshot cadence (`0`/`off` disables cron) |
-| `SPL_MINT` | (empty) | Surfaced to clients |
-| `SOLANA_CLUSTER` | `devnet` | `devnet` / `testnet` / `mainnet-beta` |
+| `SNAPSHOT_INTERVAL` | `7d` | Reward snapshot cadence |
+| `EXPOSED_RPC_POLL_INTERVAL` | `off` (prod: `5m`) | Exposed RPC polling frequency |
+| `MAX_NODES_PER_WALLET` | `5` | Per-wallet registration cap |
+| `MIN_REAL_HEIGHT` | `3000000` | Fake-height filter for public stats |
+| `RATE_LIMIT_RPS` | `2` | Per-IP requests/second |
+| `RATE_LIMIT_BURST` | `10` | Per-IP burst allowance |
+| `REGISTRATION_ENABLED` | `true` | Kill-switch for new registrations |
+| `PROOF_SUBMISSION_ENABLED` | `true` | Kill-switch for proof submissions |
 
 ---
 
 ## Tests
 
 ```bash
-cd server && cargo test
-cd prover && cargo test
+cd server && cargo test          # 200+ tests in ~0.3s
+cd prover && cargo test          # relay unit tests
+cd server && cargo kani           # 15 formal-verification harnesses (optional, needs kani-verifier)
 ```
 
-**Server suite — 129 tests across 6 files:**
+**200+ server tests across 11 files:**
 
-| Suite | Count | What it covers |
+| Suite | Tests | What it covers |
 |---|---|---|
-| `lib` (unit + property) | 60 | Merkle, auth, RPC, config, points calculation. Includes 6 `proptest` properties (256 random cases each): every leaf verifies, sorted-pair commutativity, deterministic builds, leaf-substitution rejection, append-changes-root, hash_leaf injectivity. |
-| `e2e_register_and_proof` | 6 | Full router round-trip — register → submit → leaderboard → snapshot → claim. |
-| `adversarial_register` | 15 | Bad-input rejections at `/api/nodes/register` — bad signature, replayed nonce, stale/future timestamp, tampered message, wrong-key sig, bad RPC scheme, duplicate registrations. |
-| `adversarial_proof` | 14 | Bad-input rejections at `/api/proofs/submit` — wrong wallet, replayed nonce, empty/oversized hash, monotonic-height guard, unknown node id. |
-| `store_conformance` | 23 | Direct SQLite store tests — idempotent migrate, node CRUD, uniqueness, snapshots, nonce single-use, expiry. |
-| `rpc_quorum` | 11 | Real mock JSON-RPC servers — 3/3 majority, 2/3 majority, no-quorum, all-failing, type mismatch, single endpoint. |
+| Unit + proptest | ~100 | Merkle tree, auth, RPC, config, points formula, normalize_hash, `is_unreachable_host`, `FlyClientIpKeyExtractor`. 6 proptest properties (256 random cases each). |
+| `e2e_register_and_proof` | 6 | Full router round-trip: register → submit → leaderboard → snapshot → claim |
+| `adversarial_register` | 16 | Bad-input rejections: bad sig, replayed nonce, stale timestamp, bad RPC scheme, per-wallet cap |
+| `adversarial_proof` | 14 | Wrong wallet, replayed nonce, empty/oversized hash, monotonic-height guard |
+| `exposed_rpc` | 5 | Mock zcashd: accept/reject/dedupe/drift/no-endpoint |
+| `exposed_rpc_live` | 3 | Real Zcash JSON-RPC (ignored by default, opt-in via `LIVE_ZEBRA_RPC` env) |
+| `store_conformance` | 23 | SQLite CRUD, uniqueness, snapshots, nonce single-use |
+| `rpc_quorum` | 11 | Mock RPC servers: majority, no-quorum, all-failing, type mismatch |
+| `health_info_cors` | 8 | `/healthz`, `/readyz`, `/api/info`, CORS |
+| `snapshots` | 8 | Merkle publish + claim lifecycle |
+| `challenges_http` | 7 | Challenge request/submit/expiry |
+| `concurrency` | 5 | Race-safe proof insertion |
 
-**Kani formal verification** — `#[cfg(kani)]` harnesses in `server/src/merkle.rs` prove (for bounded inputs):
-
-- For any 4-leaf tree and any index, the generated Merkle proof verifies against the root.
-- `hash_pair_sorted(a, b) == hash_pair_sorted(b, a)` for any 32-byte pair.
-- `hash_leaf` is deterministic.
-
-Install Kani once (`cargo install --locked kani-verifier && cargo kani setup`), then `cargo kani` runs the harnesses. They're gated behind the `kani` cfg so normal `cargo test` skips them.
-
----
-
-## Repo layout
-
-```
-DePINZcash/
-├── prover/                   # Rust prover crate
-│   ├── src/
-│   │   ├── main.rs           # depinzcash-prover (Halo 2)
-│   │   ├── bin/relay.rs      # depinzcash-relay (sign + submit)
-│   │   └── ...               # zebra_reader, proof_gen, halo2_circuit
-│   └── Cargo.toml
-├── server/                   # Rust / Axum backend
-│   ├── src/
-│   │   ├── main.rs           # entry
-│   │   ├── api/              # axum handlers
-│   │   ├── store/            # sqlx + sqlite
-│   │   ├── rpc.rs            # trusted-RPC quorum client
-│   │   ├── scheduler.rs      # heartbeat / uptime / staleness / snapshot tickers
-│   │   ├── merkle.rs         # $ZePIN claim Merkle tree
-│   │   ├── auth.rs           # Solana signature verification
-│   │   └── ...
-│   ├── migrations/
-│   ├── tests/                # e2e router tests
-│   └── .env.example
-├── web/                      # React/Vite frontend (live)
-├── contracts/                # Solana $ZePIN claim program (planned)
-├── config/                   # Operator-side config templates
-├── proofs/                   # Halo 2 proofs dropped here
-├── scripts/
-├── docs/
-│   └── DEPLOY.md             # fly.io + vercel deploy guide
-└── README.md
-```
-
----
-
-## Roadmap
-
-### Phase 1 — Prototype + live (current)
-- [x] Rust prover (Halo 2) — generates proofs from Zebra state
-- [x] Rust backend deployed on Fly.io
-- [x] Relay CLI — sign + submit + watch loop
-- [x] Trusted-RPC quorum verification
-- [x] Merkle snapshot for $ZePIN claim
-- [x] 129 tests + Kani formal-verification harnesses
-- [x] React/Vite web frontend live on Vercel
-- [x] Lightwalletd guide + reward tier
-- [x] Treasury wallet displayed on the site with live SOL + $ZePIN balances
-
-### Phase 2 — Production hardening
-- [ ] Exposed-RPC verification mode (no relay binary required)
-- [ ] Solana program for trustless $ZePIN claim distribution
-- [ ] Replay Halo 2 proofs to the server for stronger anti-cheat
-- [ ] Mobile monitoring app
-- [ ] Lightwalletd-specific challenges (gRPC health probes)
-
-### Phase 3 — Native Zcash assets
-- [ ] Migrate payout layer to NU7 / ZIP-227 custom assets once available
-- [ ] Keep $ZePIN / Solana path open for cross-chain demand
+**15 Kani formal-verification harnesses** prove (for all bounded inputs, not sampled):
+- Points engine: upper bound, monotonic in uptime/peers, anti-monotonic in drift, tier-ordering, zero-tier ceiling
+- Merkle: every leaf verifies, tampered-byte rejects, truncated proof rejects, deterministic builds, commutative pair-hashing
+- Auth: nonce length invariant, registration message determinism, kind-changes-output
 
 ---
 
