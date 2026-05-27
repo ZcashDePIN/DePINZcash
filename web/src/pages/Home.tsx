@@ -52,12 +52,6 @@ export function Home() {
             settle to <strong className="text-zcash-text">$ZePIN</strong> on Solana every snapshot
             cycle. Run a node, sign with your Solana wallet, earn.
           </p>
-          <div className="rounded-md border border-zcash-gold/40 bg-zcash-gold/10 px-3 py-2 text-sm">
-            <span className="font-semibold text-zcash-gold">Launch bonus:</span>{" "}
-            <span className="text-zcash-text">
-              ~$40 in $ZePIN for registering a node and keeping it online for 24 hours.
-            </span>
-          </div>
           <div className="flex flex-wrap gap-2">
             <Link to="/register" className="btn-primary">How to register</Link>
             <Link to="/leaderboard" className="btn-outline">View leaderboard</Link>
